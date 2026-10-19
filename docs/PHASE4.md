@@ -67,3 +67,14 @@ On at least one low-end Android phone, one recent Android phone, and iPhone Safa
 6. Earn/buy/equip skins, cross multiple levels, claim missions, then reload. Open every modal at 320px portrait and short landscape sizes; scroll with touch, tab through controls, close with Escape and verify focus returns.
 7. Inspect local run/death/restart/tutorial counters, export JSON, reset diagnostics, confirm wallet/skins/XP remain. Test storage blocked/full without losing the ability to play.
 8. Install web PWA, reload offline, and apply an update from the menu. On Android perform the native steps in ANDROID.md, including process death/relaunch and upgrade install with existing saves.
+
+
+## Follow-up: stalled input and Android CI — 20 October 2026
+
+A fresh audit reproduced an input regression: the 75ms lane cooldown used simulation time, so separate gestures during a stalled rendered frame shared a timestamp and the second was dropped. Debounce now uses monotonic `performance.now()` while fixed-step simulation and seeded random streams remain unchanged. A controlled browser regression freezes rendering/simulation, rejects a 50ms duplicate, accepts a later gesture at 150ms, and checks tutorial progress, paused inputs, resume and restart. It failed against the old implementation and passes after the fix; the existing swipe test's waits/assertions were not weakened.
+
+Fresh local validation: TypeScript passes; 10 unit tests pass; all 6 browser tests pass (including the previously failing small-screen swipes and the new stalled-frame regression); native web build and Capacitor sync pass. Android `assembleDebug` now succeeds after installing a full verified JDK and SDK. APK signing, ZIP integrity, manifest metadata and copied native assets were verified. The initial APK blocker described above is resolved for the prepared local environment. Physical-device gameplay/performance, native lifecycle and release signing/store publication remain unverified/separate.
+
+Added `.github/workflows/validate.yml`, validated with actionlint. It runs web checks before an Android debug build and publishes a signature-verified APK plus checksum/provenance on successful CI. Actions are pinned and repository permissions are read-only. See [CI.md](CI.md) for artifact download/install and debug-signing limitations. This does not automatically enable required status checks in branch rules or merge the PR.
+
+The audit also reported one moderate advisory in the Capacitor CLI → xcode → uuid development-tool chain (three affected package entries). No high/critical npm findings or shipped-game exposure were established. Dependency remediation remains a separate follow-up; no force upgrades or unsupported UUID overrides were introduced here.

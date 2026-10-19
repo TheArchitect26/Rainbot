@@ -8,4 +8,9 @@ Adds a generated Capacitor Android project (`com.thearchitect26.brainrotrun`, BR
 
 Validation: npm installation, TypeScript, production web build, focused Node regression tests, Chromium mobile/seeded/offline-PWA tests, and Android web build/Capacitor sync. Detailed audit, test evidence, known limitations and manual device matrix: docs/PHASE4.md. Exact Android prerequisites/build/install/signing steps: docs/ANDROID.md.
 
-Android Gradle/AGP setup succeeded through the managed proxy, but compilation is blocked by the available JRE lacking javac; no Android SDK is installed. No APK/AAB or physical-device verification is claimed. Existing large JS chunk warning remains. Do not merge or publish automatically.
+Android debug compilation now succeeds with a full JDK 21 and SDK 36; APK signature, ZIP integrity, manifest and packaged assets were verified. Physical-device verification, release signing and store publication are not claimed. Existing large JS chunk warning remains. Do not merge or publish automatically.
+
+
+Follow-up: fixes the audited stalled-frame swipe regression by using a monotonic input debounce clock. The new regression fails before the fix and passes after it, covering duplicate suppression, separated input without frames, tutorial advancement, pause/resume and restart. Current local validation: 10 unit tests, 6 browser tests, TypeScript, production PWA build and Android debug compilation pass.
+
+Adds pinned-action web/Android CI with an APK signature check and retained debug APK/checksum/provenance artifacts after web tests succeed. Download/install guidance and CI debug-key limitations are in docs/CI.md. A local debug APK has been generated for device testing; no automatic merge, release or deployment is included.

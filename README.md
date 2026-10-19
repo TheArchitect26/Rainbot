@@ -15,4 +15,4 @@ Use Node 22.12+ (Node 24 validated). Browser tests use system Chromium if availa
 
 No API credentials, backend or database are required. Game progress and diagnostics remain on the device. Settings provides tutorial replay, controls, quality and local diagnostics.
 
-See [Phase 4 audit, changes, validation and limitations](docs/PHASE4.md) and [exact Android packaging steps](docs/ANDROID.md). No APK has been generated in this cloud task.
+See [Phase 4 audit, changes, validation and limitations](docs/PHASE4.md) and [exact Android packaging steps](docs/ANDROID.md). A debug APK has now been generated and signature-verified. See [CI artifact download and device testing](docs/CI.md); physical-device checks remain outstanding.

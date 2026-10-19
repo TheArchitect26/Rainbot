@@ -12,14 +12,14 @@ The generated project is committed under `android/`. Copied web assets, Gradle o
 
 - Node.js 22.12+ (Node 24 used here), npm, and dependencies installed with `npm ci`.
 - A **full JDK 21**, including `javac`, selected by `JAVA_HOME`. `java -version` alone is insufficient.
-- Android Studio supporting AGP 8.13, or Android SDK command-line tools, platform-tools/adb, Android **SDK Platform 36**, and **Build-Tools 36.0.0**. Accept SDK licenses locally.
+- Android Studio supporting AGP 8.13, or Android SDK command-line tools, platform-tools/adb, Android **SDK Platform 36**, and **Build-Tools 35.0.0** (AGP default) and **36.0.0**. Accept SDK licenses locally.
 - Set `ANDROID_HOME` to the SDK directory (or let Android Studio create ignored `android/local.properties`). Add `$ANDROID_HOME/platform-tools` to PATH.
 - Network access to npm, Gradle distributions, Google Maven (`dl.google.com`/`maven.google.com`) and Maven Central. Keep HTTPS verification and configured CA trust enabled. On managed networks Java/Gradle may require the provided HTTP/HTTPS proxy explicitly; do not bypass it.
 
 For command-line SDK installs, once `sdkmanager` is installed:
 
 ```sh
-sdkmanager 'platform-tools' 'platforms;android-36' 'build-tools;36.0.0'
+sdkmanager 'platform-tools' 'platforms;android-36' 'build-tools;35.0.0' 'build-tools;36.0.0'
 sdkmanager --licenses
 java -version
 javac -version
@@ -62,6 +62,31 @@ Optional launcher icon regeneration: `node scripts/generate-android-icons.mjs`. 
 
 Choose a monotonically increasing `versionCode` and intentional `versionName` in `android/app/build.gradle`. In Android Studio use **Generate Signed Bundle / APK** with a securely managed release/upload key, or configure signing outside tracked files and run `./gradlew bundleRelease`. No signing configuration or keys are included. Verify the signed artifact, release-mode offline/lifecycle behavior, Play target API requirements, store metadata/privacy declarations and device testing before any submission. Do not publish a debug APK.
 
-## Result in this cloud task
+## Initial result and follow-up
 
-Generated project: **yes**. Native build and Capacitor sync: **passed**. Gradle wrapper download and AGP configuration: **passed** after using the managed proxy and a writable `ANDROID_USER_HOME`/`GRADLE_USER_HOME`. Java compilation: **blocked** because this machine supplies a JRE 21 without `javac`; SDK tooling/platforms are also absent. APK/AAB: **not generated**, and native device/emulator tests **not run**.
+During initial onboarding: generated project: **yes**. Native web build and Capacitor sync: **passed**. Gradle wrapper download and AGP configuration: **passed** after using the managed proxy and a writable `ANDROID_USER_HOME`/`GRADLE_USER_HOME`. Java compilation: **blocked** because this machine supplies a JRE 21 without `javac`; SDK tooling/platforms are also absent. APK/AAB: **not generated**, and native device/emulator tests **not run**.
+
+
+The follow-up CI workflow and APK download/install instructions are documented in [CI.md](CI.md). Debug APKs are for testing; a release signing key and store publication remain separate work.
+
+
+## Verified follow-up: 20 October 2026
+
+Installed a full checksum-verified Temurin JDK 21.0.12.1 and checksum-verified official Android command-line tools, then SDK Platform 36 / Build-Tools 35.0.0 and 36.0.0. The local `assembleDebug` build completed successfully (123 tasks). The APK's v2 signature, ZIP integrity, app ID `com.thearchitect26.brainrotrun`, API 24 minimum / API 36 target, and packaged native assets were verified. The APK omits the web PWA service worker. A device/emulator installation has **not** been performed.
+
+In this prepared cloud workspace, select the installed tools before rebuilding:
+
+```sh
+export JAVA_HOME=/workspace/.tools/jdk-21
+export ANDROID_HOME=/workspace/android-sdk
+export ANDROID_USER_HOME=/workspace/.android
+export GRADLE_USER_HOME=/workspace/.gradle-cache
+export PATH="$JAVA_HOME/bin:$ANDROID_HOME/platform-tools:$PATH"
+# The managed Java connection uses the session proxy and the trusted system CA store.
+export JAVA_TOOL_OPTIONS='-Dhttps.proxyHost=proxy -Dhttps.proxyPort=8080 -Dhttp.proxyHost=proxy -Dhttp.proxyPort=8080 -Djavax.net.ssl.trustStore=/etc/ssl/certs/java/cacerts'
+cd /workspace/Rainbot
+npm run android:sync
+./android/gradlew -p android --no-daemon --max-workers=2 assembleDebug
+```
+
+These proxy/CA paths are specific to this managed environment. Normal local Android Studio and hosted GitHub runners use their configured networking/trust. The CI workflow installs its own prerequisites and publishes a debug APK artifact; no cloud-specific paths are committed into the Android Gradle project.
