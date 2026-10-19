@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stopColor="#080816"/>
+      <stop offset="50%" stopColor="#0f172a"/>
+      <stop offset="100%" stopColor="#1e1035"/>
+    </linearGradient>
+    <linearGradient id="neonGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stopColor="#06b6d4"/>
+      <stop offset="50%" stopColor="#ec4899"/>
+      <stop offset="100%" stopColor="#facc15"/>
+    </linearGradient>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="12" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="512" height="512" rx="108" fill="url(#bgGrad)"/>
+  <rect width="496" height="496" x="8" y="8" rx="100" fill="none" stroke="#06b6d4" stroke-width="6" opacity="0.4"/>
+
+  <!-- Cyber Track perspective grid lines -->
+  <path d="M 120 440 L 220 280 L 292 280 L 392 440 Z" fill="#04040c" opacity="0.8"/>
+  <line x1="200" y1="440" x2="242" y2="280" stroke="#06b6d4" stroke-width="4" opacity="0.6"/>
+  <line x1="312" y1="440" x2="270" y2="280" stroke="#06b6d4" stroke-width="4" opacity="0.6"/>
+
+  <!-- Lightning Bolt / Dynamic Runner Glyph -->
+  <path d="M 290 80 L 170 260 L 255 260 L 220 430 L 345 230 L 265 230 Z" 
+        fill="url(#neonGrad)" 
+        filter="url(#glow)"/>
+
+  <!-- Dynamic Cyber Visor / Brainrot eye -->
+  <circle cx="280" cy="180" r="18" fill="#ffffff" filter="url(#glow)"/>
+
+  <!-- Text Badge -->
+  <text x="256" y="475" text-anchor="middle" font-family="'Chakra Petch', sans-serif" font-weight="900" font-size="34" fill="#06b6d4" letter-spacing="4">
+    BRAINROT
+  </text>
+</svg>

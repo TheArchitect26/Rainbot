@@ -1,0 +1,6 @@
+{
+  "name": "BRAINROT RUN: Escape the Algorithm",
+  "description": "A fast-paced 3D endless runner where you dodge glitches, surf viral chaos events, collect clout coins, and escape the hyperactive algorithm.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
