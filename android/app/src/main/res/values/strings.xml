@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">BRAINROT RUN</string>
+    <string name="title_activity_main">BRAINROT RUN</string>
+    <string name="package_name">com.thearchitect26.brainrotrun</string>
+    <string name="custom_url_scheme">com.thearchitect26.brainrotrun</string>
+</resources>
