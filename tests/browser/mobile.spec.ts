@@ -233,3 +233,79 @@ test('small menus support focus and swipes without forwarding modal gestures to 
   await page.getByRole('button', { name: 'REPLAY TUTORIAL' }).scrollIntoViewIfNeeded();
   await expect(page.getByRole('button', { name: 'REPLAY TUTORIAL' })).toBeInViewport();
 });
+
+test('lane debounce accepts separated inputs during a stalled frame', async ({ page }) => {
+  await page.goto('/');
+  const result = await page.evaluate(async () => {
+    const enginePath = '/src/game/GameEngine.ts',
+      skinPath = '/src/data/skins.ts';
+    const { GameEngine } = await import(enginePath);
+    const { AVAILABLE_SKINS } = await import(skinPath);
+    const mount = document.createElement('div');
+    mount.style.cssText = 'width:320px;height:568px';
+    document.body.append(mount);
+    const engine = new GameEngine(
+      mount,
+      {
+        onStatsUpdate() {},
+        onPowerUpsUpdate() {},
+        onChaosUpdate() {},
+        onGameOver() {},
+      },
+      AVAILABLE_SKINS[0],
+    );
+    const originalClock = Object.getOwnPropertyDescriptor(performance, 'now');
+    let time = 1000;
+    try {
+      engine.startTutorial(AVAILABLE_SKINS[0]);
+      cancelAnimationFrame(engine.animFrameId);
+      Object.defineProperty(performance, 'now', { configurable: true, value: () => time });
+      engine.handleInput('LEFT');
+      const firstLane = engine.currentLane;
+      time += 50;
+      engine.handleInput('RIGHT'); // Accidental duplicate inside 75ms must be ignored.
+      const duplicateLane = engine.currentLane;
+      time += 100;
+      engine.handleInput('RIGHT'); // 150ms elapsed; no simulation or rendering occurred.
+      const separatedLane = engine.currentLane;
+      const simulationTime = engine.simulationTime;
+      engine.update(1 / 120);
+      const tutorialStep = engine.tutorialStep;
+      engine.pause();
+      time += 100;
+      engine.handleInput('RIGHT');
+      const pausedLane = engine.currentLane;
+      engine.resume();
+      engine.handleInput('RIGHT');
+      const resumedLane = engine.currentLane;
+      engine.startTutorial(AVAILABLE_SKINS[0]);
+      cancelAnimationFrame(engine.animFrameId);
+      engine.handleInput('LEFT'); // Restart resets the debounce gate immediately.
+      return {
+        firstLane,
+        duplicateLane,
+        separatedLane,
+        simulationTime,
+        tutorialStep,
+        pausedLane,
+        resumedLane,
+        resetLane: engine.currentLane,
+      };
+    } finally {
+      if (originalClock) Object.defineProperty(performance, 'now', originalClock);
+      else Reflect.deleteProperty(performance, 'now');
+      engine.dispose();
+      mount.remove();
+    }
+  });
+  expect(result).toEqual({
+    firstLane: -1,
+    duplicateLane: -1,
+    separatedLane: 0,
+    simulationTime: 0,
+    tutorialStep: 2,
+    pausedLane: 0,
+    resumedLane: 1,
+    resetLane: -1,
+  });
+});

@@ -450,7 +450,10 @@ export class GameEngine {
   public handleInput(action: 'LEFT' | 'RIGHT' | 'JUMP' | 'SLIDE') {
     if (!this.isRunning || this.isPaused || this.isCrashing) return;
 
-    const now = this.simulationTime * 1000;
+    // Debounce physical gestures using a monotonic input clock. Simulation time can
+    // stand still between rendered frames; it must not swallow a later real swipe.
+    // Accepted inputs still affect the same fixed-step simulation and seeded RNGs.
+    const now = performance.now();
 
     let finalAction = action;
     if (this.chaosState.active && this.chaosState.type === 'REVERSED_CONTROLS') {
