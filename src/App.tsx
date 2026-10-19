@@ -3,8 +3,17 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import { useRegisterSW } from 'virtual:pwa-register/react';
+import { Capacitor } from '@capacitor/core';
+import { App as NativeApp } from '@capacitor/app';
+import { TutorialOverlay, type TutorialState } from './components/TutorialOverlay';
+import { DiagnosticsModal } from './components/DiagnosticsModal';
+import { localAnalytics } from './utils/analytics';
+import { awardXP, normalizeProgression } from './utils/mechanics';
+import { hasStorageFailure, readNumber, storage } from './utils/storage';
+
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { GameEngine, GraphicsQuality } from './game/GameEngine';
+import { GameEngine, GraphicsQuality, type GameEngineCallbacks } from './game/GameEngine';
 import { GameHUD } from './components/GameHUD';
 import { StartScreen } from './components/StartScreen';
 import { GameOverModal } from './components/GameOverModal';
@@ -33,19 +42,19 @@ export default function App() {
 
   // Persistence: High Score, Total Coins, Skins
   const [highScore, setHighScore] = useState<number>(() => {
-    return parseInt(localStorage.getItem('brainrot_high_score') || '0', 10);
+    return readNumber('brainrot_high_score');
   });
   const [totalCoins, setTotalCoins] = useState<number>(() => {
-    return parseInt(localStorage.getItem('brainrot_total_coins') || '0', 10);
+    return readNumber('brainrot_total_coins');
   });
   const [skins, setSkins] = useState<Skin[]>(() => {
-    const saved = localStorage.getItem('brainrot_unlocked_skins');
+    const saved = storage.getItem('brainrot_unlocked_skins');
     if (saved) {
       try {
         const unlockedIds: string[] = JSON.parse(saved);
         return AVAILABLE_SKINS.map((s) => ({
           ...s,
-          unlocked: s.unlocked || unlockedIds.includes(s.id),
+          unlocked: s.unlocked || (Array.isArray(unlockedIds) && unlockedIds.includes(s.id)),
         }));
       } catch {
         return AVAILABLE_SKINS;
@@ -55,25 +64,26 @@ export default function App() {
   });
 
   const [selectedSkinId, setSelectedSkinId] = useState<string>(() => {
-    return localStorage.getItem('brainrot_selected_skin') || 'cyber_glitch';
+    return storage.getItem('brainrot_selected_skin') || 'cyber_glitch';
   });
 
   // Settings State
   const [isMuted, setIsMuted] = useState<boolean>(() => sounds.getMuted());
   const [vibrationEnabled, setVibrationEnabled] = useState<boolean>(() => {
-    const saved = localStorage.getItem('brainrot_vibration');
+    const saved = storage.getItem('brainrot_vibration');
     return saved !== null ? saved === 'true' : true;
   });
   const [showOnScreenControls, setShowOnScreenControls] = useState<boolean>(() => {
-    const saved = localStorage.getItem('brainrot_touch_controls');
+    const saved = storage.getItem('brainrot_touch_controls');
     return saved === 'true'; // Default off on mobile to keep playfield clean, accessible via settings
   });
   const [shadowsEnabled, setShadowsEnabled] = useState<boolean>(() => {
-    const saved = localStorage.getItem('brainrot_shadows');
+    const saved = storage.getItem('brainrot_shadows');
     return saved !== null ? saved === 'true' : true;
   });
   const [quality, setQuality] = useState<GraphicsQuality>(() => {
-    return (localStorage.getItem('brainrot_quality') as GraphicsQuality) || 'medium';
+    const value = storage.getItem('brainrot_quality');
+    return ['low', 'medium', 'high'].includes(value || '') ? (value as GraphicsQuality) : 'medium';
   });
 
   // Daily Missions State (Auto-refreshed based on UTC Date)
@@ -83,16 +93,16 @@ export default function App() {
 
   // Daily Challenge & Endless State
   const [dailyChallengeBest, setDailyChallengeBest] = useState<number>(() => {
-    return parseInt(localStorage.getItem(`brainrot_daily_best_${todayUTC}`) || '0', 10);
+    return readNumber(`brainrot_daily_best_${todayUTC}`);
   });
   const [isDailyChallengeActive, setIsDailyChallengeActive] = useState<boolean>(false);
 
   // Player Progression State (XP & Levels)
   const [progression, setProgression] = useState<PlayerProgression>(() => {
-    const saved = localStorage.getItem('brainrot_progression_v3');
+    const saved = storage.getItem('brainrot_progression_v3');
     if (saved) {
       try {
-        return JSON.parse(saved);
+        return normalizeProgression(JSON.parse(saved));
       } catch {
         // use default
       }
@@ -105,8 +115,35 @@ export default function App() {
     };
   });
 
+  const skinsRef = useRef(skins);
+  const progressionRef = useRef(progression);
+  const missionsRef = useRef(missionsData);
+  const [tutorial, setTutorial] = useState<TutorialState>({
+    active: false,
+    step: 1,
+    title: '',
+    instruction: '',
+    completed: false,
+  });
+  const tutorialRef = useRef(false);
+  const tutorialReplayRef = useRef(false);
+  const tutorialRewardRef = useRef(false);
+  const [tutorialCompleted, setTutorialCompleted] = useState(
+    () => storage.getItem('brainrot_tutorial_completed_v1') === 'true',
+  );
+  const [isDiagnosticsOpen, setIsDiagnosticsOpen] = useState(false);
+  const [debugHitboxes, setDebugHitboxes] = useState(false);
+  const [engineError, setEngineError] = useState('');
+  const [storageWarning, setStorageWarning] = useState(hasStorageFailure);
+  const runDayRef = useRef(todayUTC);
+
   // Modals & Screen Navigation
   const [gameStatus, setGameStatus] = useState<GameStatus>('MENU');
+  const {
+    needRefresh: [needsUpdate],
+    updateServiceWorker,
+  } = useRegisterSW();
+  const [eliminationCause, setEliminationCause] = useState('');
   const [isSkinModalOpen, setIsSkinModalOpen] = useState<boolean>(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState<boolean>(false);
   const [isMissionsModalOpen, setIsMissionsModalOpen] = useState<boolean>(false);
@@ -149,18 +186,19 @@ export default function App() {
     targetLanes: [],
   });
 
-  const currentSelectedSkin = skins.find((s) => s.id === selectedSkinId) || skins[0];
+  const currentSelectedSkin = skins.find((s) => s.id === selectedSkinId && s.unlocked) || skins[0];
   const unclaimedMissionsCount = missions.filter((m) => m.current >= m.target && !m.claimed).length;
 
   // Helper to update mission progress and persist to storage
   const updateMissions = useCallback((updater: (prev: DailyMission[]) => DailyMission[]) => {
-    setMissionsData((prev) => {
-      const updated = updater(prev.missions);
-      const payload = { date: todayUTC, missions: updated };
-      localStorage.setItem('brainrot_daily_missions_v3', JSON.stringify(payload));
-      return payload;
-    });
-  }, [todayUTC]);
+    const today = getUTCDayString();
+    const previous =
+      missionsRef.current.date === today ? missionsRef.current : getOrRefreshDailyMissions();
+    const payload = { date: today, missions: updater(previous.missions) };
+    missionsRef.current = payload;
+    storage.setItem('brainrot_daily_missions_v3', JSON.stringify(payload));
+    setMissionsData(payload);
+  }, []);
 
   // Check and grant milestone unlocks
   const checkMilestoneUnlock = useCallback((newLevel: number) => {
@@ -169,225 +207,288 @@ export default function App() {
 
     if (milestone.rewardType === 'COINS' && typeof milestone.rewardValue === 'number') {
       const reward = milestone.rewardValue;
-      setTotalCoins((prev) => {
-        const next = prev + reward;
-        localStorage.setItem('brainrot_total_coins', String(next));
-        return next;
-      });
+      const next = readNumber('brainrot_total_coins') + reward;
+      storage.setItem('brainrot_total_coins', String(next));
+      setTotalCoins(next);
     } else if (milestone.rewardType === 'SKIN' && typeof milestone.rewardValue === 'string') {
       const skinIdToUnlock = milestone.rewardValue;
-      setSkins((prev) => {
-        const updated = prev.map((s) => (s.id === skinIdToUnlock ? { ...s, unlocked: true } : s));
-        const unlockedIds = updated.filter((s) => s.unlocked).map((s) => s.id);
-        localStorage.setItem('brainrot_unlocked_skins', JSON.stringify(unlockedIds));
-        return updated;
-      });
+      const updated = skinsRef.current.map((s) =>
+        s.id === skinIdToUnlock ? { ...s, unlocked: true } : s,
+      );
+      skinsRef.current = updated;
+      storage.setItem(
+        'brainrot_unlocked_skins',
+        JSON.stringify(updated.filter((s) => s.unlocked).map((s) => s.id)),
+      );
+      setSkins(updated);
     }
   }, []);
 
-  // Award XP and calculate rank ascension
+  // Compute synchronously from the latest ref; React updater functions must remain pure.
   const addPlayerXP = useCallback(
     (xpGain: number) => {
-      let levelUps = 0;
-      let finalLevel = progression.level;
-
-      setProgression((prev) => {
-        let lvl = prev.level;
-        let curXP = prev.currentXP + xpGain;
-        let reqXP = prev.xpToNextLevel;
-        let total = prev.totalXP + xpGain;
-
-        while (curXP >= reqXP) {
-          curXP -= reqXP;
-          lvl += 1;
-          reqXP = getXPRequiredForLevel(lvl);
-          levelUps += 1;
-        }
-
-        finalLevel = lvl;
-        const updated: PlayerProgression = {
-          level: lvl,
-          currentXP: curXP,
-          xpToNextLevel: reqXP,
-          totalXP: total,
-        };
-        localStorage.setItem('brainrot_progression_v3', JSON.stringify(updated));
-        return updated;
-      });
-
-      return { levelUps, newLevel: finalLevel };
+      const result = awardXP(progressionRef.current, xpGain);
+      progressionRef.current = result.next;
+      storage.setItem('brainrot_progression_v3', JSON.stringify(result.next));
+      setProgression(result.next);
+      for (const level of result.levels) checkMilestoneUnlock(level);
+      return result;
     },
-    [progression.level]
+    [checkMilestoneUnlock],
   );
 
-  // Track action triggers during live run
-  const handleActionTriggered = useCallback(
-    (action: string) => {
-      if (action === 'DODGE') {
-        updateMissions((prev) =>
-          prev.map((m) => {
-            if (m.type === 'DODGE') {
-              const cur = m.current + 1;
-              return { ...m, current: cur, completed: cur >= m.target };
-            }
-            return m;
-          })
-        );
+  const engineCallbacks: GameEngineCallbacks = {
+    onStatsUpdate: (latestStats) => {
+      setStats((prev) => ({
+        ...prev,
+        score: latestStats.score,
+        distance: latestStats.distance,
+        coins: latestStats.coins,
+        chaosSurvived: latestStats.chaosSurvived,
+        obstaclesDodged: latestStats.obstaclesDodged,
+        bossDefeated: latestStats.bossDefeated,
+        isDailyChallenge: latestStats.isDailyChallenge,
+        stage: latestStats.stage,
+      }));
+    },
+    onPowerUpsUpdate: (activeList) => {
+      setPowerUps(activeList);
+    },
+    onChaosUpdate: (chaosState) => {
+      setChaos(chaosState);
+    },
+    onBossUpdate: (bossUpdate) => {
+      setBossState(bossUpdate);
+    },
+    onPause: () => setGameStatus('PAUSED'),
+    onTutorialStep: (step, title, instruction, completed) =>
+      setTutorial({ active: true, step, title, instruction, completed }),
+    onTutorialComplete: () => {
+      localAnalytics.recordTutorialCompleted();
+      if (storage.getItem('brainrot_tutorial_rewarded_v1') !== 'true') {
+        storage.setItem('brainrot_tutorial_rewarded_v1', 'true');
+        const wallet = readNumber('brainrot_total_coins') + 100;
+        storage.setItem('brainrot_total_coins', String(wallet));
+        setTotalCoins(wallet);
+        addPlayerXP(150);
       }
+      storage.setItem('brainrot_tutorial_completed_v1', 'true');
+      storage.setItem('brainrot_tutorial_seen_v1', 'true');
+      setTutorialCompleted(true);
     },
-    [updateMissions]
-  );
+    onGameOver: (finalStats, cause) => {
+      setEliminationCause(cause || 'COLLISION');
+      setGameStatus('GAMEOVER');
 
-  // Initialize Game Engine on Mount
+      // Update Wallet Coins
+      const currentWallet = readNumber('brainrot_total_coins');
+      const newWallet = currentWallet + finalStats.coins;
+      storage.setItem('brainrot_total_coins', String(newWallet));
+      setTotalCoins(newWallet);
+
+      // Calculate XP Gains
+      const distanceXP = Math.floor(finalStats.distance / 5);
+      const coinsXP = finalStats.coins * 2;
+      const dodgedXP = (finalStats.obstaclesDodged || 0) * 4;
+      const bossXP = (finalStats.bossDefeated || 0) * 150;
+      const totalRunXP = distanceXP + coinsXP + dodgedXP + bossXP;
+
+      const xpResult = addPlayerXP(totalRunXP);
+      const breakdown: XPGainBreakdown = {
+        distanceXP,
+        coinsXP,
+        dodgedXP,
+        bossXP,
+        totalRunXP,
+        levelUps: xpResult.levelUps,
+        newLevel: xpResult.newLevel,
+      };
+      setXpBreakdown(breakdown);
+
+      if (xpResult.levelUps > 0) {
+        setNewLevelReached(xpResult.newLevel);
+        setIsLevelUpModalOpen(true);
+      }
+
+      // Daily Challenge vs Endless Best checking
+      if (finalStats.isDailyChallenge) {
+        const currentDailyBest = readNumber(`brainrot_daily_best_${runDayRef.current}`);
+        if (finalStats.score > currentDailyBest) {
+          storage.setItem(`brainrot_daily_best_${runDayRef.current}`, String(finalStats.score));
+          setDailyChallengeBest(finalStats.score);
+          setIsNewHigh(true);
+        } else {
+          setIsNewHigh(false);
+        }
+      } else {
+        const currentBest = readNumber('brainrot_high_score');
+        if (finalStats.score > currentBest) {
+          storage.setItem('brainrot_high_score', String(finalStats.score));
+          setHighScore(finalStats.score);
+          setIsNewHigh(true);
+        } else {
+          setIsNewHigh(false);
+        }
+      }
+
+      setStats((prev) => ({
+        ...prev,
+        score: finalStats.score,
+        distance: finalStats.distance,
+        coins: finalStats.coins,
+        highScore: Math.max(readNumber('brainrot_high_score'), finalStats.score),
+        totalCoins: newWallet,
+        chaosSurvived: finalStats.chaosSurvived,
+        obstaclesDodged: finalStats.obstaclesDodged,
+        bossDefeated: finalStats.bossDefeated,
+        isDailyChallenge: finalStats.isDailyChallenge,
+      }));
+
+      // Update Missions across categories
+      updateMissions((prev) =>
+        prev.map((m) => {
+          let cur = m.current;
+          if (m.type === 'COINS') {
+            cur += finalStats.coins;
+          } else if (m.type === 'DISTANCE') {
+            cur = Math.max(cur, finalStats.distance);
+          } else if (m.type === 'TIME') {
+            const estimatedSeconds = Math.floor(finalStats.durationSeconds || 0);
+            cur = Math.max(cur, estimatedSeconds);
+          } else if (m.type === 'DODGE') {
+            cur += finalStats.obstaclesDodged || 0;
+          } else if (m.type === 'ZONE') {
+            cur = Math.max(cur, finalStats.distance);
+          } else if (m.type === 'RUNS') {
+            cur += 1;
+          } else if (m.type === 'BOSS') {
+            cur += finalStats.bossDefeated || 0;
+          }
+          return {
+            ...m,
+            current: cur,
+            completed: cur >= m.target,
+          };
+        }),
+      );
+    },
+  };
+  const callbacksRef = useRef(engineCallbacks);
+  callbacksRef.current = engineCallbacks;
+  // Exactly one engine per mounted canvas. Handlers always observe the latest React state.
   useEffect(() => {
     if (!canvasMountRef.current) return;
-
-    const engine = new GameEngine(
-      canvasMountRef.current,
-      {
-        onStatsUpdate: (latestStats) => {
-          setStats((prev) => ({
-            ...prev,
-            score: latestStats.score,
-            distance: latestStats.distance,
-            coins: latestStats.coins,
-            chaosSurvived: latestStats.chaosSurvived,
-            obstaclesDodged: latestStats.obstaclesDodged,
-            bossDefeated: latestStats.bossDefeated,
-            isDailyChallenge: latestStats.isDailyChallenge,
-            stage: latestStats.stage,
-          }));
-        },
-        onPowerUpsUpdate: (activeList) => {
-          setPowerUps(activeList);
-        },
-        onChaosUpdate: (chaosState) => {
-          setChaos(chaosState);
-        },
-        onBossUpdate: (bossUpdate) => {
-          setBossState(bossUpdate);
-        },
-        onActionTriggered: handleActionTriggered,
-        onGameOver: (finalStats) => {
-          setGameStatus('GAMEOVER');
-
-          // Update Wallet Coins
-          const currentWallet = parseInt(localStorage.getItem('brainrot_total_coins') || '0', 10);
-          const newWallet = currentWallet + finalStats.coins;
-          localStorage.setItem('brainrot_total_coins', String(newWallet));
-          setTotalCoins(newWallet);
-
-          // Calculate XP Gains
-          const distanceXP = Math.floor(finalStats.distance / 5);
-          const coinsXP = finalStats.coins * 2;
-          const dodgedXP = (finalStats.obstaclesDodged || 0) * 4;
-          const bossXP = (finalStats.bossDefeated || 0) * 150;
-          const totalRunXP = distanceXP + coinsXP + dodgedXP + bossXP;
-
-          const xpResult = addPlayerXP(totalRunXP);
-          const breakdown: XPGainBreakdown = {
-            distanceXP,
-            coinsXP,
-            dodgedXP,
-            bossXP,
-            totalRunXP,
-            levelUps: xpResult.levelUps,
-            newLevel: xpResult.newLevel,
-          };
-          setXpBreakdown(breakdown);
-
-          if (xpResult.levelUps > 0) {
-            setNewLevelReached(xpResult.newLevel);
-            setIsLevelUpModalOpen(true);
-            checkMilestoneUnlock(xpResult.newLevel);
-          }
-
-          // Daily Challenge vs Endless Best checking
-          if (finalStats.isDailyChallenge) {
-            const currentDailyBest = parseInt(
-              localStorage.getItem(`brainrot_daily_best_${todayUTC}`) || '0',
-              10
-            );
-            if (finalStats.score > currentDailyBest) {
-              localStorage.setItem(`brainrot_daily_best_${todayUTC}`, String(finalStats.score));
-              setDailyChallengeBest(finalStats.score);
-              setIsNewHigh(true);
-            } else {
-              setIsNewHigh(false);
-            }
-          } else {
-            const currentBest = parseInt(localStorage.getItem('brainrot_high_score') || '0', 10);
-            if (finalStats.score > currentBest) {
-              localStorage.setItem('brainrot_high_score', String(finalStats.score));
-              setHighScore(finalStats.score);
-              setIsNewHigh(true);
-            } else {
-              setIsNewHigh(false);
-            }
-          }
-
-          setStats((prev) => ({
-            ...prev,
-            score: finalStats.score,
-            distance: finalStats.distance,
-            coins: finalStats.coins,
-            highScore: Math.max(
-              parseInt(localStorage.getItem('brainrot_high_score') || '0', 10),
-              finalStats.score
-            ),
-            totalCoins: newWallet,
-            chaosSurvived: finalStats.chaosSurvived,
-            obstaclesDodged: finalStats.obstaclesDodged,
-            bossDefeated: finalStats.bossDefeated,
-            isDailyChallenge: finalStats.isDailyChallenge,
-          }));
-
-          // Update Missions across categories
-          updateMissions((prev) =>
-            prev.map((m) => {
-              let cur = m.current;
-              if (m.type === 'COINS') {
-                cur += finalStats.coins;
-              } else if (m.type === 'DISTANCE') {
-                cur = Math.max(cur, finalStats.distance);
-              } else if (m.type === 'TIME') {
-                const estimatedSeconds = Math.floor(finalStats.distance / 20);
-                cur = Math.max(cur, estimatedSeconds);
-              } else if (m.type === 'DODGE') {
-                cur += finalStats.obstaclesDodged || 0;
-              } else if (m.type === 'ZONE') {
-                cur = Math.max(cur, finalStats.distance);
-              } else if (m.type === 'RUNS') {
-                cur += 1;
-              } else if (m.type === 'BOSS') {
-                cur += finalStats.bossDefeated || 0;
-              }
-              return {
-                ...m,
-                current: cur,
-                completed: cur >= m.target,
-              };
-            })
-          );
-        },
-      },
-      currentSelectedSkin
-    );
-
-    engineRef.current = engine;
+    let engine: GameEngine;
+    try {
+      const callbacks = Object.fromEntries(
+        Object.keys(callbacksRef.current).map((key) => [
+          key,
+          (...args: unknown[]) => {
+            const handler = callbacksRef.current[key as keyof GameEngineCallbacks] as (
+              ...values: unknown[]
+            ) => void;
+            handler?.(...args);
+          },
+        ]),
+      ) as unknown as GameEngineCallbacks;
+      engine = new GameEngine(canvasMountRef.current, callbacks, currentSelectedSkin);
+      engineRef.current = engine;
+    } catch {
+      setEngineError(
+        'Unable to start WebGL. Please reload, enable hardware acceleration, or try another browser. Your saved progress is preserved.',
+      );
+      return;
+    }
 
     return () => {
       engine.dispose();
       engineRef.current = null;
     };
+  }, []);
+
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+    const listener = NativeApp.addListener('appStateChange', ({ isActive }) => {
+      if (!isActive) engineRef.current?.pauseForBackground();
+    });
+    return () => {
+      void listener.then((handle) => handle.remove());
+    };
+  }, []);
+
+  useEffect(() => {
+    const dialogs = document.querySelectorAll<HTMLElement>('[role="dialog"]');
+    const dialog = dialogs[dialogs.length - 1];
+    if (!dialog) return;
+    const previous = document.activeElement as HTMLElement | null;
+    const controls = () => [
+      ...dialog.querySelectorAll<HTMLElement>('button:not(:disabled), [tabindex="0"]'),
+    ];
+    controls()[0]?.focus();
+    const trap = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        if (isLevelUpModalOpen) setIsLevelUpModalOpen(false);
+        else if (isDiagnosticsOpen) setIsDiagnosticsOpen(false);
+        else if (isSettingsModalOpen) setIsSettingsModalOpen(false);
+        else if (isSkinModalOpen) setIsSkinModalOpen(false);
+        else if (isMissionsModalOpen) setIsMissionsModalOpen(false);
+        else if (isProgressionModalOpen) setIsProgressionModalOpen(false);
+        else if (gameStatus === 'PAUSED') handleResume();
+        else if (gameStatus === 'GAMEOVER') handleQuitToMenu();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const items = controls();
+      if (!items.length) return;
+      const first = items[0],
+        last = items[items.length - 1];
+      if (
+        event.shiftKey &&
+        (document.activeElement === first || !dialog.contains(document.activeElement))
+      ) {
+        event.preventDefault();
+        last.focus();
+      } else if (
+        !event.shiftKey &&
+        (document.activeElement === last || !dialog.contains(document.activeElement))
+      ) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener('keydown', trap, true);
+    return () => {
+      document.removeEventListener('keydown', trap, true);
+      if (previous?.isConnected) previous.focus();
+    };
   }, [
-    todayUTC,
-    currentSelectedSkin,
-    handleActionTriggered,
-    addPlayerXP,
-    checkMilestoneUnlock,
-    updateMissions,
+    gameStatus,
+    isSkinModalOpen,
+    isSettingsModalOpen,
+    isMissionsModalOpen,
+    isProgressionModalOpen,
+    isLevelUpModalOpen,
+    isDiagnosticsOpen,
   ]);
+
+  useEffect(() => {
+    const refreshDay = () => {
+      setStorageWarning(hasStorageFailure());
+      if (missionsRef.current.date === getUTCDayString()) return;
+      const fresh = getOrRefreshDailyMissions();
+      missionsRef.current = fresh;
+      setMissionsData(fresh);
+      setDailyChallengeBest(readNumber(`brainrot_daily_best_${getUTCDayString()}`));
+    };
+    const timer = window.setInterval(refreshDay, 30000);
+    document.addEventListener('visibilitychange', refreshDay);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', refreshDay);
+    };
+  }, []);
 
   // Sync skin changes
   useEffect(() => {
@@ -400,7 +501,10 @@ export default function App() {
   const touchStartRef = useRef<{ x: number; y: number; time: number } | null>(null);
 
   const handleTouchStart = (e: React.TouchEvent | TouchEvent) => {
-    if (e.touches.length > 0) {
+    touchStartRef.current = null;
+    if (gameStatus !== 'PLAYING' || (e.target as HTMLElement).closest('button, [role="dialog"]'))
+      return;
+    if (e.touches.length === 1) {
       touchStartRef.current = {
         x: e.touches[0].clientX,
         y: e.touches[0].clientY,
@@ -444,6 +548,22 @@ export default function App() {
   // Keyboard controls for desktop fallback & testing
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
+      if (
+        e.repeat ||
+        isSettingsModalOpen ||
+        isSkinModalOpen ||
+        isMissionsModalOpen ||
+        isProgressionModalOpen ||
+        isDiagnosticsOpen ||
+        isLevelUpModalOpen ||
+        engineError
+      )
+        return;
+      if (
+        (e.code === 'Space' || e.code === 'Enter') &&
+        (e.target as HTMLElement)?.closest?.('button, input, select, textarea')
+      )
+        return;
       if (e.code === 'Space' || e.code === 'Enter') {
         if (gameStatus === 'MENU') {
           e.preventDefault();
@@ -483,7 +603,16 @@ export default function App() {
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [gameStatus]
+    [
+      gameStatus,
+      isSettingsModalOpen,
+      isSkinModalOpen,
+      isMissionsModalOpen,
+      isProgressionModalOpen,
+      isDiagnosticsOpen,
+      isLevelUpModalOpen,
+      engineError,
+    ],
   );
 
   useEffect(() => {
@@ -491,7 +620,26 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleKeyDown]);
 
+  const startTutorial = (replay = false) => {
+    tutorialRef.current = true;
+    tutorialReplayRef.current = replay;
+    tutorialRewardRef.current = storage.getItem('brainrot_tutorial_rewarded_v1') !== 'true';
+    localAnalytics.abandonRun();
+    localAnalytics.recordTutorialStart(replay);
+    setIsDailyChallengeActive(false);
+    setIsNewHigh(false);
+    setGameStatus('PLAYING');
+    engineRef.current?.startTutorial(currentSelectedSkin);
+  };
+
   const handleStartGame = () => {
+    if (storage.getItem('brainrot_tutorial_seen_v1') !== 'true') {
+      startTutorial();
+      return;
+    }
+    tutorialRef.current = false;
+    setTutorial((prev) => ({ ...prev, active: false }));
+    runDayRef.current = getUTCDayString();
     setIsDailyChallengeActive(false);
     setIsNewHigh(false);
     setGameStatus('PLAYING');
@@ -499,6 +647,10 @@ export default function App() {
   };
 
   const handleStartDailyChallenge = () => {
+    tutorialRef.current = false;
+    setTutorial((prev) => ({ ...prev, active: false }));
+    runDayRef.current = getUTCDayString();
+    setDailyChallengeBest(readNumber(`brainrot_daily_best_${runDayRef.current}`));
     setIsDailyChallengeActive(true);
     setIsNewHigh(false);
     setGameStatus('PLAYING');
@@ -506,6 +658,11 @@ export default function App() {
   };
 
   const handleRestartGame = () => {
+    if (tutorialRef.current) {
+      startTutorial(tutorialReplayRef.current);
+      return;
+    }
+    runDayRef.current = getUTCDayString();
     setIsNewHigh(false);
     setGameStatus('PLAYING');
     engineRef.current?.reset(currentSelectedSkin, isDailyChallengeActive);
@@ -522,6 +679,10 @@ export default function App() {
   };
 
   const handleQuitToMenu = () => {
+    tutorialRef.current = false;
+    setTutorial((prev) => ({ ...prev, active: false }));
+    updateMissions((missions) => missions);
+    setDailyChallengeBest(readNumber(`brainrot_daily_best_${getUTCDayString()}`));
     setGameStatus('MENU');
     sounds.stopBGM();
     engineRef.current?.showMenuShowcase();
@@ -539,7 +700,7 @@ export default function App() {
 
   const handleToggleOnScreenControls = (enabled: boolean) => {
     setShowOnScreenControls(enabled);
-    localStorage.setItem('brainrot_touch_controls', String(enabled));
+    storage.setItem('brainrot_touch_controls', String(enabled));
   };
 
   const handleToggleShadows = (enabled: boolean) => {
@@ -553,35 +714,50 @@ export default function App() {
   };
 
   const handleSelectSkin = (skin: Skin) => {
+    if (!skinsRef.current.some((s) => s.id === skin.id && s.unlocked)) return;
     setSelectedSkinId(skin.id);
-    localStorage.setItem('brainrot_selected_skin', skin.id);
+    storage.setItem('brainrot_selected_skin', skin.id);
   };
 
   const handleUnlockSkin = (skinId: string) => {
-    const skinToUnlock = skins.find((s) => s.id === skinId);
-    if (!skinToUnlock || totalCoins < skinToUnlock.price) return;
+    const skinToUnlock = skinsRef.current.find((s) => s.id === skinId);
+    if (
+      !skinToUnlock ||
+      skinToUnlock.unlocked ||
+      readNumber('brainrot_total_coins') < skinToUnlock.price
+    )
+      return;
 
-    const remaining = totalCoins - skinToUnlock.price;
+    const remaining = readNumber('brainrot_total_coins') - skinToUnlock.price;
     setTotalCoins(remaining);
-    localStorage.setItem('brainrot_total_coins', String(remaining));
+    storage.setItem('brainrot_total_coins', String(remaining));
 
-    const updatedSkins = skins.map((s) => (s.id === skinId ? { ...s, unlocked: true } : s));
+    const updatedSkins = skinsRef.current.map((s) =>
+      s.id === skinId ? { ...s, unlocked: true } : s,
+    );
+    skinsRef.current = updatedSkins;
     setSkins(updatedSkins);
 
     const unlockedIds = updatedSkins.filter((s) => s.unlocked).map((s) => s.id);
-    localStorage.setItem('brainrot_unlocked_skins', JSON.stringify(unlockedIds));
+    storage.setItem('brainrot_unlocked_skins', JSON.stringify(unlockedIds));
 
     setSelectedSkinId(skinId);
-    localStorage.setItem('brainrot_selected_skin', skinId);
+    storage.setItem('brainrot_selected_skin', skinId);
   };
 
   const handleClaimMission = (missionId: string) => {
-    const targetMission = missions.find((m) => m.id === missionId);
-    if (!targetMission || targetMission.claimed) return;
+    const targetMission = missionsRef.current.missions.find((m) => m.id === missionId);
+    if (missionsRef.current.date !== getUTCDayString()) {
+      updateMissions((m) => m);
+      return;
+    }
+    if (!targetMission || targetMission.claimed || targetMission.current < targetMission.target)
+      return;
+    updateMissions((prev) => prev.map((m) => (m.id === missionId ? { ...m, claimed: true } : m)));
 
-    const newCoins = totalCoins + targetMission.rewardCoins;
+    const newCoins = readNumber('brainrot_total_coins') + targetMission.rewardCoins;
     setTotalCoins(newCoins);
-    localStorage.setItem('brainrot_total_coins', String(newCoins));
+    storage.setItem('brainrot_total_coins', String(newCoins));
 
     sounds.playPowerUp();
 
@@ -590,12 +766,7 @@ export default function App() {
     if (xpResult.levelUps > 0) {
       setNewLevelReached(xpResult.newLevel);
       setIsLevelUpModalOpen(true);
-      checkMilestoneUnlock(xpResult.newLevel);
     }
-
-    updateMissions((prev) =>
-      prev.map((m) => (m.id === missionId ? { ...m, claimed: true } : m))
-    );
   };
 
   return (
@@ -603,6 +774,9 @@ export default function App() {
       className="fixed inset-0 w-full h-full h-[100dvh] overflow-hidden bg-black select-none touch-none overscroll-none"
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
+      onTouchCancel={() => {
+        touchStartRef.current = null;
+      }}
     >
       {/* Isolated Three.js WebGL Canvas Mount Container */}
       <div ref={canvasMountRef} className="absolute inset-0 w-full h-full" />
@@ -611,6 +785,14 @@ export default function App() {
       <div className="absolute inset-0 scanlines pointer-events-none opacity-30 z-[5]" />
 
       {/* Screen States */}
+      {engineError && (
+        <div role="alert" className="absolute inset-0 z-50 bg-black text-white p-8">
+          {engineError}
+          <button className="block p-4" onClick={() => window.location.reload()}>
+            Reload
+          </button>
+        </div>
+      )}
       {gameStatus === 'MENU' && (
         <StartScreen
           highScore={highScore}
@@ -619,6 +801,9 @@ export default function App() {
           selectedSkin={currentSelectedSkin}
           progression={progression}
           unclaimedMissionsCount={unclaimedMissionsCount}
+          isTutorialCompleted={tutorialCompleted}
+          onStartTutorial={() => startTutorial(tutorialCompleted)}
+          onOpenDiagnostics={() => setIsDiagnosticsOpen(true)}
           onStart={handleStartGame}
           onStartDailyChallenge={handleStartDailyChallenge}
           onOpenSkins={() => setIsSkinModalOpen(true)}
@@ -635,7 +820,7 @@ export default function App() {
           chaos={chaos}
           boss={bossState}
           currentStage={stats.stage}
-          showOnScreenControls={showOnScreenControls}
+          showOnScreenControls={showOnScreenControls || tutorial.active}
           onPause={handlePause}
           onControlInput={(action) => engineRef.current?.handleInput(action)}
         />
@@ -657,6 +842,7 @@ export default function App() {
           isNewHigh={isNewHigh}
           selectedSkin={currentSelectedSkin}
           dailyChallengeBest={dailyChallengeBest}
+          eliminationCause={eliminationCause}
           xpBreakdown={xpBreakdown}
           progression={progression}
           onRestart={handleRestartGame}
@@ -665,6 +851,48 @@ export default function App() {
         />
       )}
 
+      {tutorial.active && gameStatus === 'PLAYING' && (
+        <TutorialOverlay
+          tutorial={tutorial}
+          rewardGranted={tutorialRewardRef.current}
+          onSkip={() => {
+            localAnalytics.recordTutorialSkipped();
+            storage.setItem('brainrot_tutorial_seen_v1', 'true');
+            tutorialRef.current = false;
+            setTutorial((prev) => ({ ...prev, active: false }));
+            handleStartGame();
+          }}
+          onFinish={handleStartGame}
+        />
+      )}
+      {isDiagnosticsOpen && (
+        <DiagnosticsModal
+          debugHitboxes={debugHitboxes}
+          onToggleDebugHitboxes={(enabled) => {
+            setDebugHitboxes(enabled);
+            engineRef.current?.setDebugHitboxes(enabled);
+          }}
+          onClose={() => setIsDiagnosticsOpen(false)}
+        />
+      )}
+      {needsUpdate &&
+        !Capacitor.isNativePlatform() &&
+        (gameStatus === 'MENU' || gameStatus === 'GAMEOVER') && (
+          <button
+            onClick={() => void updateServiceWorker(true)}
+            className="absolute bottom-2 left-2 z-50 rounded-xl bg-cyan-400 text-black p-3"
+          >
+            Update game (reload)
+          </button>
+        )}
+      {storageWarning && (
+        <p
+          role="status"
+          className="absolute top-0 left-0 right-0 z-50 bg-amber-950 text-amber-100 text-xs p-2 text-center"
+        >
+          Device storage is unavailable. Progress is saved for this session only.
+        </p>
+      )}
       {/* Modals */}
       {isSkinModalOpen && (
         <SkinModal
@@ -694,10 +922,7 @@ export default function App() {
       )}
 
       {isLevelUpModalOpen && (
-        <LevelUpModal
-          newLevel={newLevelReached}
-          onClose={() => setIsLevelUpModalOpen(false)}
-        />
+        <LevelUpModal newLevel={newLevelReached} onClose={() => setIsLevelUpModalOpen(false)} />
       )}
 
       {isSettingsModalOpen && (
@@ -711,6 +936,8 @@ export default function App() {
           onToggleVibration={handleToggleVibration}
           onToggleOnScreenControls={handleToggleOnScreenControls}
           onToggleShadows={handleToggleShadows}
+          onReplayTutorial={() => startTutorial(true)}
+          onOpenDiagnostics={() => setIsDiagnosticsOpen(true)}
           onChangeQuality={handleChangeQuality}
           onClose={() => setIsSettingsModalOpen(false)}
         />

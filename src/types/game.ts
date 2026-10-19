@@ -84,6 +84,7 @@ export interface StageInfo {
 }
 
 export interface PlayerStats {
+  durationSeconds?: number;
   score: number;
   distance: number;
   coins: number;

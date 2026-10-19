@@ -17,7 +17,7 @@ export const PauseModal: React.FC<PauseModalProps> = ({
   onToggleMute,
 }) => {
   return (
-    <div className="absolute inset-0 z-30 flex items-center justify-center p-4 bg-black/80 select-none">
+    <div role="dialog" aria-modal="true" aria-label="Paused" className="absolute inset-0 z-30 flex items-center justify-center p-4 bg-black/80 select-none">
       <div className="w-full max-w-sm bg-neutral-950 border border-cyan-500/40 rounded-2xl p-6 shadow-2xl flex flex-col items-center text-center">
         <h2 className="font-arcade text-3xl font-black text-cyan-400 tracking-wider uppercase mb-1">
           GAME PAUSED

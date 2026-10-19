@@ -1,3 +1,4 @@
+import { storage } from '../utils/storage';
 /**
  * Procedural Web Audio Sound Engine for BRAINROT RUN.
  * Zero external audio files, instant response, zero latency.
@@ -15,7 +16,7 @@ class SoundEngine {
   private bgmStep: number = 0;
 
   constructor() {
-    const savedMute = localStorage.getItem('brainrot_muted');
+    const savedMute = storage.getItem('brainrot_muted');
     if (savedMute !== null) {
       this.isMuted = savedMute === 'true';
     }
@@ -53,7 +54,7 @@ class SoundEngine {
 
   public toggleMute(): boolean {
     this.isMuted = !this.isMuted;
-    localStorage.setItem('brainrot_muted', String(this.isMuted));
+    storage.setItem('brainrot_muted', String(this.isMuted));
     if (this.masterGain && this.ctx) {
       this.masterGain.gain.setTargetAtTime(this.isMuted ? 0 : 0.8, this.ctx.currentTime, 0.05);
     }
@@ -62,7 +63,7 @@ class SoundEngine {
 
   public setMuted(muted: boolean) {
     this.isMuted = muted;
-    localStorage.setItem('brainrot_muted', String(muted));
+    storage.setItem('brainrot_muted', String(muted));
     if (this.masterGain && this.ctx) {
       this.masterGain.gain.setTargetAtTime(this.isMuted ? 0 : 0.8, this.ctx.currentTime, 0.05);
     }

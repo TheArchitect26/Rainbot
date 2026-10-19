@@ -1,3 +1,5 @@
+import { hitsObstacle } from '../utils/mechanics';
+import { storage } from '../utils/storage';
 import * as THREE from 'three';
 import {
   ActivePowerUp,
@@ -38,6 +40,7 @@ export interface GameEngineCallbacks {
   onActionTriggered?: (action: string) => void;
   onTutorialStep?: (step: number, title: string, instruction: string, completed: boolean) => void;
   onTutorialComplete?: () => void;
+  onPause?: () => void;
 }
 
 export type GraphicsQuality = 'low' | 'medium' | 'high';
@@ -124,6 +127,19 @@ export class GameEngine {
   // Tutorial State
   private isTutorial: boolean = false;
   private tutorialStep: number = 0;
+  private tutorialActions = new Set<string>();
+  private tutorialHazardId: number | null = null;
+  private tutorialCoins = 0;
+  private previousZ = 0;
+  private elapsedSeconds = 0;
+  private simulationTime = 0;
+  private gameOverTimer: ReturnType<typeof setTimeout> | null = null;
+  private hudTimer = 0;
+  private adaptiveTime = 0;
+  private adaptiveFrames = 0;
+  private discardFrame = true;
+  private obstacleRandom: () => number = Math.random;
+  private bossRandom: () => number = Math.random;
 
   // Diagnostics & Debug
   private lastFrameTime: number = 0;
@@ -172,13 +188,14 @@ export class GameEngine {
     this.container = container;
     this.callbacks = callbacks;
 
-    const savedVib = localStorage.getItem('brainrot_vibration');
+    const savedVib = storage.getItem('brainrot_vibration');
     if (savedVib !== null) this.vibrationEnabled = savedVib === 'true';
 
-    const savedQuality = localStorage.getItem('brainrot_quality') as GraphicsQuality | null;
-    if (savedQuality) this.quality = savedQuality;
+    const savedQuality = storage.getItem('brainrot_quality') as GraphicsQuality | null;
+    if (savedQuality && ['low', 'medium', 'high'].includes(savedQuality))
+      this.quality = savedQuality;
 
-    const savedShadows = localStorage.getItem('brainrot_shadows');
+    const savedShadows = storage.getItem('brainrot_shadows');
     if (savedShadows !== null) this.shadowsEnabled = savedShadows === 'true';
 
     this.scene = new THREE.Scene();
@@ -203,8 +220,8 @@ export class GameEngine {
       this.quality === 'high'
         ? Math.min(window.devicePixelRatio, 2.0)
         : this.quality === 'medium'
-        ? Math.min(window.devicePixelRatio, 1.5)
-        : 1.0;
+          ? Math.min(window.devicePixelRatio, 1.5)
+          : 1.0;
     this.renderer.setPixelRatio(isHeadless ? 1 : targetDpr);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -238,12 +255,12 @@ export class GameEngine {
 
     this.renderer.domElement.addEventListener('webglcontextlost', (e) => {
       e.preventDefault();
-      this.pause();
+      this.pauseForBackground();
     });
 
     this.renderer.domElement.addEventListener('webglcontextrestored', () => {
       this.renderer.compile(this.scene, this.camera);
-      this.resume();
+      if (this.isRunning) this.callbacks.onPause?.();
     });
 
     this.startMenuShowcase();
@@ -276,15 +293,20 @@ export class GameEngine {
     this.renderer.setSize(width, height);
   };
 
-  private onVisibilityChange = () => {
-    if (document.hidden && this.isRunning && !this.isPaused) {
+  public pauseForBackground() {
+    if (this.isRunning && !this.isPaused && !this.isCrashing) {
       this.pause();
+      this.callbacks.onPause?.();
     }
+  }
+
+  private onVisibilityChange = () => {
+    if (document.hidden) this.pauseForBackground();
   };
 
   public setVibration(enabled: boolean) {
     this.vibrationEnabled = enabled;
-    localStorage.setItem('brainrot_vibration', String(enabled));
+    storage.setItem('brainrot_vibration', String(enabled));
   }
 
   public getVibration(): boolean {
@@ -304,15 +326,15 @@ export class GameEngine {
 
   public setQuality(quality: GraphicsQuality) {
     this.quality = quality;
-    localStorage.setItem('brainrot_quality', quality);
+    storage.setItem('brainrot_quality', quality);
 
     const isHeadless = navigator.webdriver || /HeadlessChrome/i.test(navigator.userAgent);
     const targetDpr =
       quality === 'high'
         ? Math.min(window.devicePixelRatio, 2.0)
         : quality === 'medium'
-        ? Math.min(window.devicePixelRatio, 1.5)
-        : 1.0;
+          ? Math.min(window.devicePixelRatio, 1.5)
+          : 1.0;
     this.renderer.setPixelRatio(isHeadless ? 1 : targetDpr);
     this.renderer.shadowMap.enabled = !isHeadless && this.shadowEnabledForDevice();
     this.character.setShadowsEnabled(this.renderer.shadowMap.enabled);
@@ -320,7 +342,7 @@ export class GameEngine {
 
   public setShadows(enabled: boolean) {
     this.shadowsEnabled = enabled;
-    localStorage.setItem('brainrot_shadows', String(enabled));
+    storage.setItem('brainrot_shadows', String(enabled));
     this.renderer.shadowMap.enabled = this.shadowEnabledForDevice();
     this.character.setShadowsEnabled(this.renderer.shadowMap.enabled);
   }
@@ -347,7 +369,7 @@ export class GameEngine {
   }
 
   private spawnNextEncounter() {
-    if (this.isTutorial) return;
+    if (this.isTutorial || this.boss.state.active) return;
 
     // Generous spacing early in run (< 200m) to give beginners plenty of reaction time
     const spacing =
@@ -408,7 +430,7 @@ export class GameEngine {
       this.obstacles.spawnObstacle('FULL_BLOCK', blockedLane, z);
       const openLane = (blockedLane === 0 ? 1 : 0) as Lane;
       this.collectibles.spawnCoinRow(openLane, z + 2, 4, 1.6);
-    } else if (roll < 0.90) {
+    } else if (roll < 0.9) {
       this.obstacles.spawnObstacle('MOVING_DRONE', 0, z, true);
     } else {
       const safeLane = (Math.floor(this.getRandom() * 3) - 1) as Lane;
@@ -428,7 +450,7 @@ export class GameEngine {
   public handleInput(action: 'LEFT' | 'RIGHT' | 'JUMP' | 'SLIDE') {
     if (!this.isRunning || this.isPaused || this.isCrashing) return;
 
-    const now = performance.now();
+    const now = this.simulationTime * 1000;
 
     let finalAction = action;
     if (this.chaosState.active && this.chaosState.type === 'REVERSED_CONTROLS') {
@@ -446,6 +468,8 @@ export class GameEngine {
         sounds.playLaneChange();
         this.triggerHaptic(12);
         this.callbacks.onActionTriggered?.('LEFT');
+        if (this.isTutorial) this.tutorialActions.add('LEFT');
+        if (this.isTutorial) this.tutorialActions.add('LANE');
       }
     } else if (finalAction === 'RIGHT') {
       if (now - this.lastLaneChangeTime < 75) return;
@@ -457,6 +481,8 @@ export class GameEngine {
         sounds.playLaneChange();
         this.triggerHaptic(12);
         this.callbacks.onActionTriggered?.('RIGHT');
+        if (this.isTutorial) this.tutorialActions.add('RIGHT');
+        if (this.isTutorial) this.tutorialActions.add('LANE');
       }
     } else if (finalAction === 'JUMP') {
       if (!this.isJumping) {
@@ -468,6 +494,7 @@ export class GameEngine {
         this.triggerHaptic(16);
         this.particles.emit(this.playerX, 0.1, this.playerZ, 12, 0x06b6d4, 3, 0.4);
         this.callbacks.onActionTriggered?.('JUMP');
+        if (this.isTutorial) this.tutorialActions.add('JUMP');
       } else {
         this.inputBuffer = 'JUMP';
         this.inputBufferTimer = 0.22;
@@ -482,6 +509,7 @@ export class GameEngine {
       this.triggerHaptic(18);
       this.particles.emit(this.playerX, 0.05, this.playerZ + 0.3, 14, 0xfacc15, 3.5, 0.3);
       this.callbacks.onActionTriggered?.('SLIDE');
+      if (this.isTutorial) this.tutorialActions.add('SLIDE');
     }
   }
 
@@ -511,7 +539,7 @@ export class GameEngine {
       this.chaosState.warningTimeLeft -= dt;
       if (this.chaosState.warningTimeLeft <= 0) {
         this.triggerChaos(this.chaosState.nextWarningType!);
-      } else {
+      } else if (this.hudTimer === 0) {
         this.callbacks.onChaosUpdate({ ...this.chaosState });
       }
     }
@@ -520,7 +548,7 @@ export class GameEngine {
       this.chaosState.timeLeft -= dt;
       if (this.chaosState.timeLeft <= 0) {
         this.endChaos();
-      } else {
+      } else if (this.hudTimer === 0) {
         this.callbacks.onChaosUpdate({ ...this.chaosState });
       }
     }
@@ -529,7 +557,7 @@ export class GameEngine {
   private triggerChaos(type: ChaosType) {
     sounds.playChaosDrop();
     this.triggerHaptic([50, 80, 50]);
-    this.chaosSurvivedCount++;
+
     this.cameraShake = 0.45;
 
     let name = '';
@@ -576,6 +604,7 @@ export class GameEngine {
   }
 
   private endChaos() {
+    if (this.chaosState.active) this.chaosSurvivedCount++;
     this.syncStageTheme();
     this.chaosState = {
       active: false,
@@ -601,6 +630,9 @@ export class GameEngine {
 
   // --- Start Menu Showcase Mode ---
   private startMenuShowcase() {
+    if (this.animFrameId !== null) cancelAnimationFrame(this.animFrameId);
+    if (this.gameOverTimer !== null) clearTimeout(this.gameOverTimer);
+    localAnalytics.abandonRun();
     this.isMenuMode = true;
     this.isRunning = false;
 
@@ -613,6 +645,7 @@ export class GameEngine {
       lastTime = time;
       const dt = Math.min(rawDt, 0.05);
 
+      if (document.hidden) return;
       this.globalTime += dt;
       this.character.animate(dt, 'IDLE', 1.0, 0, this.globalTime);
 
@@ -644,22 +677,35 @@ export class GameEngine {
     sounds.startBGM();
 
     let lastTime = performance.now();
+    let accumulator = 0;
 
     const loop = (time: number) => {
       this.animFrameId = requestAnimationFrame(loop);
       const rawDt = (time - lastTime) / 1000;
       lastTime = time;
 
-      // Local FPS and frame spike diagnostic sampling
-      if (rawDt > 0) {
-        const currentFps = Math.min(240, Math.round(1 / rawDt));
-        localAnalytics.recordFPS(currentFps, rawDt * 1000);
+      if (!this.isRunning || this.isPaused || document.hidden) return;
+      if (this.discardFrame) {
+        this.discardFrame = false;
+        return;
       }
-
-      const dt = Math.min(rawDt, 0.05) * this.slowMoFactor;
-
-      if (!this.isPaused) {
-        this.update(dt);
+      localAnalytics.recordFPS(1000 / (rawDt * 1000), rawDt * 1000);
+      this.adaptiveTime += rawDt;
+      this.adaptiveFrames++;
+      if (this.adaptiveTime >= 3) {
+        if (this.adaptiveFrames / this.adaptiveTime < 40 && this.renderer.getPixelRatio() > 0.75) {
+          this.renderer.setPixelRatio(Math.max(0.75, this.renderer.getPixelRatio() - 0.25));
+          this.renderer.shadowMap.enabled = false;
+          this.character.setShadowsEnabled(false);
+        }
+        this.adaptiveTime = 0;
+        this.adaptiveFrames = 0;
+      }
+      // Fixed 120Hz simulation keeps seeded scheduling independent of display refresh rate.
+      accumulator += Math.min(rawDt, 0.25) * this.slowMoFactor;
+      while (accumulator >= 1 / 120 && !this.isPaused && this.isRunning) {
+        this.update(1 / 120);
+        accumulator -= 1 / 120;
       }
       this.render();
     };
@@ -669,10 +715,13 @@ export class GameEngine {
 
   public pause() {
     this.isPaused = true;
+    sounds.stopBGM();
   }
 
   public resume() {
     this.isPaused = false;
+    this.discardFrame = true;
+    if (this.isRunning && !this.isCrashing) sounds.startBGM();
   }
 
   public setSkin(skin: Skin) {
@@ -710,52 +759,27 @@ export class GameEngine {
       this.postChaosSafeTimer -= dt;
     }
 
-    // Tutorial step progression triggers
-    if (this.isTutorial) {
-      if (this.tutorialStep === 1 && this.distanceTraveled >= 35) {
-        this.tutorialStep = 2;
-        this.callbacks.onTutorialStep?.(
-          2,
-          'SWIPE UP TO JUMP',
-          'Flick upwards to clear low laser barriers.',
-          false
-        );
-      } else if (this.tutorialStep === 2 && this.distanceTraveled >= 85) {
-        this.tutorialStep = 3;
-        this.callbacks.onTutorialStep?.(
-          3,
-          'SWIPE DOWN TO SLIDE',
-          'Flick downwards to duck under elevated high beams.',
-          false
-        );
-      } else if (this.tutorialStep === 3 && this.distanceTraveled >= 140) {
-        this.tutorialStep = 4;
-        this.callbacks.onTutorialStep?.(
-          4,
-          'COLLECT CLOUT COINS',
-          'Harvest coins along your lane for score multipliers and skins.',
-          false
-        );
-      } else if (this.tutorialStep === 4 && this.distanceTraveled >= 195) {
-        this.tutorialStep = 5;
-        this.callbacks.onTutorialStep?.(
-          5,
-          'DODGE SOLID WALLS',
-          'Solid walls cannot be jumped or slid under. Switch to the open lane!',
-          false
-        );
-      } else if (this.tutorialStep === 5 && this.distanceTraveled >= 250) {
-        this.tutorialStep = 6;
-        sounds.playPowerUp();
-        this.callbacks.onTutorialStep?.(
-          5,
-          'TUTORIAL COMPLETE!',
-          'You are ready to outrun the algorithm!',
-          true
-        );
-        this.callbacks.onTutorialComplete?.();
-      }
-    }
+    this.simulationTime += dt;
+    if (!this.isCrashing) this.elapsedSeconds += dt;
+    this.previousZ = this.playerZ;
+    this.hudTimer += dt;
+    const publishHUD = this.hudTimer >= 0.1;
+    if (publishHUD) this.hudTimer = 0;
+    if (this.debugHitboxesEnabled) this.character.setDebugHitbox(true, this.isSliding);
+    if (
+      this.isTutorial &&
+      this.tutorialStep === 1 &&
+      this.tutorialActions.has('LEFT') &&
+      this.tutorialActions.has('RIGHT')
+    )
+      this.advanceTutorial();
+
+    if (
+      this.isTutorial &&
+      this.tutorialStep === 4 &&
+      this.collectibles.getActiveCoins().length === 0
+    )
+      this.prepareTutorialStep();
 
     // 1. Calculate Speed (Balanced ramp with beginner-friendly 16.0 base speed)
     let speedMult = 1.0;
@@ -770,12 +794,15 @@ export class GameEngine {
     this.currentSpeed = (baseSpeed + speedRamp) * speedMult;
 
     // 2. Advance player forward
-    if (!this.isCrashing) {
+    if (
+      !this.isCrashing &&
+      !(this.isTutorial && (this.tutorialStep === 1 || this.tutorialStep === 6))
+    ) {
       const moveZ = this.currentSpeed * dt;
       this.playerZ -= moveZ;
       this.distanceTraveled += moveZ;
 
-      if (this.playerZ - 120 < this.spawnCursorZ) {
+      if (!this.boss.state.active && this.playerZ - 180 < this.spawnCursorZ) {
         this.spawnNextEncounter();
       }
 
@@ -783,7 +810,10 @@ export class GameEngine {
       const nextStageIndex = STAGES.findIndex((s, idx) => {
         const nextStage = STAGES[idx + 1];
         if (!nextStage) return true;
-        return this.distanceTraveled >= s.startDistance && this.distanceTraveled < nextStage.startDistance;
+        return (
+          this.distanceTraveled >= s.startDistance &&
+          this.distanceTraveled < nextStage.startDistance
+        );
       });
 
       if (nextStageIndex !== -1 && nextStageIndex !== this.currentStageIndex) {
@@ -797,6 +827,12 @@ export class GameEngine {
       // Trigger Algorithm Boss battle encounter at distance milestones
       if (!this.boss.state.active && this.distanceTraveled >= this.nextBossTriggerDistance) {
         this.nextBossTriggerDistance += 600;
+        this.obstacles.clear(); // Boss safe lanes must not overlap old normal encounters.
+        this.collectibles.clear();
+        this.spawnCursorZ = this.playerZ - 60;
+        this.chaosState.active = false;
+        this.chaosState.warningTimeLeft = 0;
+        this.syncStageTheme();
         this.boss.triggerBoss();
       }
     }
@@ -846,13 +882,19 @@ export class GameEngine {
     // 6. Character transformations & animation
     this.character.group.position.set(this.playerX, this.playerY, this.playerZ);
 
-    const animStatus = this.isCrashing ? 'CRASH' : this.isSliding ? 'SLIDE' : this.isJumping ? 'JUMP' : 'RUN';
+    const animStatus = this.isCrashing
+      ? 'CRASH'
+      : this.isSliding
+        ? 'SLIDE'
+        : this.isJumping
+          ? 'JUMP'
+          : 'RUN';
     this.character.animate(
       dt,
       animStatus,
       this.currentSpeed / 22,
       this.laneChangeTilt,
-      this.globalTime
+      this.globalTime,
     );
 
     this.character.shieldMesh.visible = this.activePowerUps.has('SHIELD');
@@ -863,7 +905,8 @@ export class GameEngine {
 
     // 7. Update Subsystems & Boss
     this.environment.update(this.playerZ, dt, this.globalTime);
-    const movingBarriersChaos = this.chaosState.active && this.chaosState.type === 'MOVING_BARRIERS';
+    const movingBarriersChaos =
+      this.chaosState.active && this.chaosState.type === 'MOVING_BARRIERS';
     this.obstacles.update(dt, this.playerZ, movingBarriersChaos, this.globalTime);
     this.collectibles.update(
       dt,
@@ -871,10 +914,10 @@ export class GameEngine {
       this.playerY,
       this.playerZ,
       this.activePowerUps.has('MAGNET'),
-      this.globalTime
+      this.globalTime,
     );
     this.particles.update(dt);
-    this.updateChaos(dt);
+    if (!this.isTutorial && !this.boss.state.active) this.updateChaos(dt);
 
     // Update Boss Battle
     if (this.boss.state.active) {
@@ -885,6 +928,8 @@ export class GameEngine {
         () => {
           // Boss Defeated!
           this.bossDefeatedCount++;
+          this.spawnCursorZ = this.playerZ - 60;
+          this.chaosTimer = 19;
           this.coinsCollected += 150;
           this.activePowerUps.set('SPEED_BOOST', 6);
           this.cameraShake = 0.6;
@@ -893,16 +938,21 @@ export class GameEngine {
         },
         (type, lane) => {
           // Spawn Boss telegraphed hazard 35 units ahead
-          this.obstacles.spawnObstacle(type, lane, this.playerZ - 36);
-        }
+          this.obstacles.spawnObstacle(
+            type,
+            lane,
+            this.playerZ - Math.max(36, this.currentSpeed * 2),
+          );
+        },
+        this.bossRandom,
       );
-      this.callbacks.onBossUpdate?.({ ...this.boss.state });
-    } else {
+      if (publishHUD) this.callbacks.onBossUpdate?.({ ...this.boss.state });
+    } else if (publishHUD) {
       this.callbacks.onBossUpdate?.({ ...this.boss.state });
     }
 
     // 8. Powerup Timers
-    const powerUpsList: ActivePowerUp[] = [];
+    const powerUpsList: ActivePowerUp[] | null = publishHUD ? [] : null;
     for (const [type, timeLeft] of this.activePowerUps.entries()) {
       const nextTime = timeLeft - dt;
       if (nextTime <= 0) {
@@ -910,10 +960,10 @@ export class GameEngine {
       } else {
         this.activePowerUps.set(type, nextTime);
         const maxDur = type === 'SPEED_BOOST' ? 6 : type === 'DOUBLE_COINS' ? 12 : 10;
-        powerUpsList.push({ type, timeLeft: nextTime, duration: maxDur });
+        powerUpsList?.push({ type, timeLeft: nextTime, duration: maxDur });
       }
     }
-    this.callbacks.onPowerUpsUpdate(powerUpsList);
+    if (powerUpsList) this.callbacks.onPowerUpsUpdate(powerUpsList);
 
     // 9. Precision Collision Detection & Obstacle Dodging Counter
     if (!this.isCrashing) {
@@ -943,28 +993,29 @@ export class GameEngine {
     this.camera.lookAt(this.playerX * 0.2, this.playerY * 0.22 + 1.25, this.playerZ - 10.0);
 
     // 11. Dispatch stats to React UI
-    const multiplier = this.activePowerUps.has('DOUBLE_COINS') ? 2 : 1;
-    const score = Math.floor(this.distanceTraveled * multiplier) + this.coinsCollected * 10;
+    const score = Math.floor(this.distanceTraveled) + this.coinsCollected * 10;
 
-    this.callbacks.onStatsUpdate({
-      score,
-      distance: Math.floor(this.distanceTraveled),
-      coins: this.coinsCollected,
-      highScore: 0,
-      totalCoins: 0,
-      runsPlayed: 0,
-      chaosSurvived: this.chaosSurvivedCount,
-      obstaclesDodged: this.obstaclesDodgedCount,
-      bossDefeated: this.bossDefeatedCount,
-      isDailyChallenge: this.isDailyChallenge,
-      stage: STAGES[this.currentStageIndex],
-    });
+    if (publishHUD)
+      this.callbacks.onStatsUpdate({
+        score,
+        distance: Math.floor(this.distanceTraveled),
+        coins: this.coinsCollected,
+        highScore: 0,
+        totalCoins: 0,
+        runsPlayed: 0,
+        chaosSurvived: this.chaosSurvivedCount,
+        obstaclesDodged: this.obstaclesDodgedCount,
+        bossDefeated: this.bossDefeatedCount,
+        isDailyChallenge: this.isDailyChallenge,
+        stage: STAGES[this.currentStageIndex],
+      });
   }
 
   private checkCollisions() {
     // 1. Coins
     const activeCoins = this.collectibles.getActiveCoins();
-    for (const coin of activeCoins) {
+    for (let i = activeCoins.length - 1; i >= 0; i--) {
+      const coin = activeCoins[i];
       if (coin.collected) continue;
       const mesh = this.collectibles.getCoinMesh(coin.id);
       if (!mesh) continue;
@@ -979,14 +1030,25 @@ export class GameEngine {
         this.triggerHaptic(8);
         const coinVal = this.activePowerUps.has('DOUBLE_COINS') ? 2 : 1;
         this.coinsCollected += coinVal;
-        this.particles.emit(mesh.position.x, mesh.position.y, mesh.position.z, 14, 0xfacc15, 4, 0.4);
+        this.particles.emit(
+          mesh.position.x,
+          mesh.position.y,
+          mesh.position.z,
+          14,
+          0xfacc15,
+          4,
+          0.4,
+        );
         this.collectibles.removeCoin(coin.id);
+        if (this.isTutorial && this.tutorialStep === 4 && this.coinsCollected > this.tutorialCoins)
+          this.advanceTutorial();
       }
     }
 
     // 2. Power-ups
     const activePowerUps = this.collectibles.getActivePowerUps();
-    for (const pu of activePowerUps) {
+    for (let i = activePowerUps.length - 1; i >= 0; i--) {
+      const pu = activePowerUps[i];
       if (pu.collected) continue;
       const mesh = this.collectibles.getPowerUpMesh(pu.id);
       if (!mesh) continue;
@@ -1001,7 +1063,15 @@ export class GameEngine {
         this.triggerHaptic([25, 40, 25]);
         const duration = pu.type === 'SPEED_BOOST' ? 6 : pu.type === 'DOUBLE_COINS' ? 12 : 10;
         this.activePowerUps.set(pu.type, duration);
-        this.particles.emit(mesh.position.x, mesh.position.y, mesh.position.z, 22, 0x06b6d4, 5, 0.6);
+        this.particles.emit(
+          mesh.position.x,
+          mesh.position.y,
+          mesh.position.z,
+          22,
+          0x06b6d4,
+          5,
+          0.6,
+        );
         this.collectibles.removePowerUp(pu.id);
       }
     }
@@ -1010,90 +1080,92 @@ export class GameEngine {
     if (this.isInvulnerable) return;
 
     const activeObstacles = this.obstacles.getActiveObstacles();
-    const isPlayerSliding = this.isSliding;
-    const playerBottom = this.playerY;
-    const playerTop = this.playerY + (isPlayerSliding ? 0.45 : 1.75);
 
     for (const obs of activeObstacles) {
       const mesh = this.obstacles.getMesh(obs.id);
       if (!mesh) continue;
 
-      // Track successfully dodged obstacle as soon as runner moves past it
-      if (!obs.passed && mesh.position.z > this.playerZ + 0.5) {
+      if (obs.passed) continue;
+      const collides = hitsObstacle(
+        obs.type,
+        Math.abs(mesh.position.x - this.playerX),
+        mesh.position.z,
+        this.previousZ,
+        this.playerZ,
+        this.playerY,
+        this.isSliding,
+        mesh.position.y,
+      );
+      if (
+        this.isTutorial &&
+        obs.id === this.tutorialHazardId &&
+        this.previousZ >= mesh.position.z &&
+        this.playerZ <= mesh.position.z
+      ) {
+        const dx = Math.abs(mesh.position.x - this.playerX);
+        if (
+          (this.tutorialStep === 2 && dx < 1.35 && this.playerY >= 0.62) ||
+          (this.tutorialStep === 3 && dx < 1.35 && this.isSliding && this.playerY < 0.8) ||
+          (this.tutorialStep === 5 && dx >= 1.35)
+        )
+          this.tutorialActions.add('CLEARED');
+      }
+      if (!collides && mesh.position.z > this.playerZ + 0.52) {
         obs.passed = true;
         this.obstaclesDodgedCount++;
         this.callbacks.onActionTriggered?.('DODGE');
-        continue;
-      }
-
-      if (obs.passed) continue;
-
-      const dx = Math.abs(mesh.position.x - this.playerX);
-      const dz = Math.abs(mesh.position.z - this.playerZ);
-
-      if (dz < 0.52 && dx < 0.95) {
-        let collides = false;
-
-        if (obs.type === 'LOW_BARRIER') {
-          if (playerBottom < 0.62) {
-            collides = true;
-          }
-        } else if (obs.type === 'HIGH_BARRIER') {
-          if (!isPlayerSliding || playerTop > 1.25) {
-            collides = true;
-          }
-        } else if (obs.type === 'FULL_BLOCK') {
-          collides = true;
-        } else if (obs.type === 'MOVING_DRONE') {
-          if (playerTop > 0.8 && playerBottom < 2.3) {
-            collides = true;
-          }
-        }
-
-        if (collides) {
-          if (this.activePowerUps.has('SPEED_BOOST')) {
-            obs.passed = true;
-            sounds.playShieldBreak();
-            this.triggerHaptic([30, 40]);
-            this.particles.emit(mesh.position.x, 1.2, mesh.position.z, 25, 0xef4444, 6, 0.5);
-            this.obstacles.removeObstacle(obs.id);
-            this.cameraShake = 0.3;
-            return;
-          }
-
-          if (this.activePowerUps.has('SHIELD')) {
-            obs.passed = true;
-            this.activePowerUps.delete('SHIELD');
-            sounds.playShieldBreak();
-            this.triggerHaptic([35, 60, 35]);
-            this.hitstopDuration = 0.05;
-            this.cameraShake = 0.5;
-            this.isInvulnerable = true;
-            this.invulnerableTimer = 1.0;
-            this.particles.emit(this.playerX, 1.0, this.playerZ, 30, 0x06b6d4, 6, 0.6);
-            this.obstacles.removeObstacle(obs.id);
-            return;
-          }
-
-          if (this.isTutorial) {
-            this.isInvulnerable = true;
-            this.invulnerableTimer = 1.8;
-            sounds.playShieldBreak();
-            this.triggerHaptic([35, 60, 35]);
-            this.obstacles.removeObstacle(obs.id);
-            this.particles.emit(this.playerX, 1.0, this.playerZ, 20, 0x06b6d4, 5, 0.5);
-            return;
-          }
-
-          this.lastEliminationCause = obs.type;
-          this.triggerGameOver(obs.type);
+        if (this.isTutorial && obs.id === this.tutorialHazardId) {
+          const required =
+            this.tutorialStep === 2 ? 'JUMP' : this.tutorialStep === 3 ? 'SLIDE' : 'LANE';
+          if (this.tutorialActions.has(required) && this.tutorialActions.has('CLEARED'))
+            this.advanceTutorial();
+          else this.prepareTutorialStep();
           return;
         }
+      }
+      if (collides) {
+        if (this.activePowerUps.has('SPEED_BOOST')) {
+          obs.passed = true;
+          sounds.playShieldBreak();
+          this.triggerHaptic([30, 40]);
+          this.particles.emit(mesh.position.x, 1.2, mesh.position.z, 25, 0xef4444, 6, 0.5);
+          this.obstacles.removeObstacle(obs.id);
+          this.cameraShake = 0.3;
+          return;
+        }
+
+        if (this.activePowerUps.has('SHIELD')) {
+          obs.passed = true;
+          this.activePowerUps.delete('SHIELD');
+          sounds.playShieldBreak();
+          this.triggerHaptic([35, 60, 35]);
+          this.hitstopDuration = 0.05;
+          this.cameraShake = 0.5;
+          this.isInvulnerable = true;
+          this.invulnerableTimer = 1.0;
+          this.particles.emit(this.playerX, 1.0, this.playerZ, 30, 0x06b6d4, 6, 0.6);
+          this.obstacles.removeObstacle(obs.id);
+          return;
+        }
+
+        if (this.isTutorial) {
+          this.prepareTutorialStep();
+          sounds.playShieldBreak();
+          this.triggerHaptic([35, 60, 35]);
+          this.obstacles.removeObstacle(obs.id);
+          this.particles.emit(this.playerX, 1.0, this.playerZ, 20, 0x06b6d4, 5, 0.5);
+          return;
+        }
+
+        this.lastEliminationCause = obs.type;
+        this.triggerGameOver(obs.type);
+        return;
       }
     }
   }
 
   private triggerGameOver(cause?: string) {
+    if (this.isCrashing) return;
     this.isCrashing = true;
     this.slowMoFactor = 0.25;
     sounds.playHit();
@@ -1103,8 +1175,7 @@ export class GameEngine {
     this.particles.emit(this.playerX, 1.0, this.playerZ, 45, 0xef4444, 7, 0.8);
     this.character.animate(0.016, 'CRASH', 0, 0, this.globalTime);
 
-    const multiplier = this.activePowerUps.has('DOUBLE_COINS') ? 2 : 1;
-    const finalScore = Math.floor(this.distanceTraveled * multiplier) + this.coinsCollected * 10;
+    const finalScore = Math.floor(this.distanceTraveled) + this.coinsCollected * 10;
 
     const stats: PlayerStats = {
       score: finalScore,
@@ -1120,9 +1191,23 @@ export class GameEngine {
       stage: STAGES[this.currentStageIndex],
     };
 
-    setTimeout(() => {
+    localAnalytics.recordRunEnd(
+      stats.score,
+      stats.distance,
+      stats.coins,
+      cause,
+      this.isDailyChallenge,
+      stats.stage?.name,
+      this.elapsedSeconds,
+    );
+    this.gameOverTimer = setTimeout(() => {
       this.isRunning = false;
-      this.callbacks.onGameOver(stats, cause || this.lastEliminationCause);
+      if (this.animFrameId !== null) cancelAnimationFrame(this.animFrameId);
+      this.animFrameId = null;
+      this.callbacks.onGameOver(
+        { ...stats, durationSeconds: this.elapsedSeconds },
+        cause || this.lastEliminationCause,
+      );
     }, 550);
   }
 
@@ -1175,46 +1260,99 @@ export class GameEngine {
     this.updateCameraFOV(width, height);
     this.camera.position.set(0, 2.95, 4.9);
 
-    // Scripted Tutorial Obstacles & Coins
-    // Step 1: Coins on lanes -1 and 1 to practice lane changing
-    this.collectibles.spawnCoin(-1, -18, 0.8);
-    this.collectibles.spawnCoin(1, -28, 0.8);
-
-    // Step 2: Jump low barrier at z = -55
-    this.obstacles.spawnObstacle('LOW_BARRIER', 0, -55);
-    this.collectibles.spawnCoinArc(0, -53, 5, 1.8);
-
-    // Step 3: Slide high barrier at z = -110
-    this.obstacles.spawnObstacle('HIGH_BARRIER', 0, -110);
-    this.collectibles.spawnCoinRow(0, -108, 4, 1.2, 0.4);
-
-    // Step 4: Coin stream at z = -165
-    this.collectibles.spawnCoinRow(0, -165, 7, 2.0, 0.8);
-
-    // Step 5: Dodge solid wall at z = -225
-    this.obstacles.spawnObstacle('FULL_BLOCK', 0, -225);
-    this.collectibles.spawnCoinRow(-1, -223, 5, 1.8, 0.8);
-    this.collectibles.spawnCoinRow(1, -223, 5, 1.8, 0.8);
-
-    this.callbacks.onTutorialStep?.(
-      1,
-      'SWIPE LEFT & RIGHT',
-      'Flick your finger left or right across the screen to switch lanes.',
-      false
-    );
-
+    this.resetRuntime();
+    this.prepareTutorialStep();
     this.start();
   }
 
+  private prepareTutorialStep() {
+    this.obstacles.clear();
+    this.collectibles.clear();
+    this.tutorialActions.clear();
+    this.tutorialCoins = this.coinsCollected;
+    this.tutorialHazardId = null;
+    const lane = this.targetLane;
+    if (this.tutorialStep === 2 || this.tutorialStep === 3 || this.tutorialStep === 5) {
+      const type =
+        this.tutorialStep === 2
+          ? 'LOW_BARRIER'
+          : this.tutorialStep === 3
+            ? 'HIGH_BARRIER'
+            : 'FULL_BLOCK';
+      this.tutorialHazardId = this.obstacles.spawnObstacle(type, lane, this.playerZ - 22).id;
+    }
+    if (this.tutorialStep === 4) this.collectibles.spawnCoinRow(lane, this.playerZ - 12, 7);
+    const prompts = [
+      [
+        'SWIPE LEFT & RIGHT',
+        'Swipe both directions (or use arrow keys/buttons). Training waits for you.',
+      ],
+      ['SWIPE UP TO JUMP', 'Jump over the low barrier in your lane. Missed it? Safely try again.'],
+      ['SWIPE DOWN TO SLIDE', 'Slide under the high barrier. Use a down swipe or arrow key.'],
+      ['COLLECT CLOUT COINS', 'Stay aligned with the coin stream to collect a coin.'],
+      ['DODGE SOLID WALLS', 'Switch to an open lane to pass the solid wall.'],
+      ['TUTORIAL COMPLETE!', 'Your controls are ready. Enter the algorithm when ready.'],
+    ];
+    const [title, instruction] = prompts[this.tutorialStep - 1];
+    this.callbacks.onTutorialStep?.(
+      Math.min(5, this.tutorialStep),
+      title,
+      instruction,
+      this.tutorialStep === 6,
+    );
+  }
+
+  private advanceTutorial() {
+    if (!this.isTutorial || this.tutorialStep >= 6) return;
+    this.tutorialStep++;
+    this.prepareTutorialStep();
+    if (this.tutorialStep === 6) {
+      sounds.stopBGM();
+      this.callbacks.onTutorialComplete?.();
+    }
+  }
+
+  private resetRuntime() {
+    if (this.gameOverTimer !== null) clearTimeout(this.gameOverTimer);
+    this.environment.reset();
+    this.elapsedSeconds = 0;
+    this.simulationTime = 0;
+    this.globalTime = 0;
+    this.previousZ = 0;
+    this.lastLaneChangeTime = -1000;
+    this.discardFrame = true;
+    this.hudTimer = 0.1;
+    this.chaosTimer = 19;
+    this.postChaosSafeTimer = 0;
+    this.chaosState = {
+      ...this.chaosState,
+      active: false,
+      type: null,
+      warningTimeLeft: 0,
+      timeLeft: 0,
+      nextWarningType: null,
+    };
+    this.callbacks.onChaosUpdate({ ...this.chaosState });
+  }
+
   public reset(initialSkin: Skin, isDailyChallenge: boolean = false) {
+    this.resetRuntime();
     this.isTutorial = false;
     this.tutorialStep = 0;
     this.isDailyChallenge = isDailyChallenge;
     if (isDailyChallenge) {
       this.prng = new SeededPRNG(getDailySeed());
+      const obstaclePRNG = new SeededPRNG(getDailySeed() ^ 0x1234);
+      const bossPRNG = new SeededPRNG(getDailySeed() ^ 0x5678);
+      this.obstacleRandom = () => obstaclePRNG.next();
+      this.bossRandom = () => bossPRNG.next();
     } else {
       this.prng = null;
+      this.obstacleRandom = Math.random;
+      this.bossRandom = Math.random;
     }
+    this.obstacles.setRandom(this.obstacleRandom);
+    localAnalytics.recordRunStart(isDailyChallenge);
 
     this.currentLane = 0;
     this.targetLane = 0;
@@ -1275,9 +1413,31 @@ export class GameEngine {
     if (this.animFrameId !== null) {
       cancelAnimationFrame(this.animFrameId);
     }
+    if (this.gameOverTimer !== null) clearTimeout(this.gameOverTimer);
+    this.isRunning = false;
+    this.isMenuMode = false;
     sounds.stopBGM();
     window.removeEventListener('resize', this.onWindowResize);
     document.removeEventListener('visibilitychange', this.onVisibilityChange);
+    const geometries = new Set<THREE.BufferGeometry>();
+    const materials = new Set<THREE.Material>();
+    const textures = new Set<THREE.Texture>();
+    this.scene.traverse((object) => {
+      const mesh = object as THREE.Mesh;
+      if (mesh.geometry) geometries.add(mesh.geometry);
+      if (mesh.material)
+        for (const mat of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) {
+          materials.add(mat);
+          for (const value of Object.values(mat))
+            if (value instanceof THREE.Texture) textures.add(value);
+        }
+    });
+    geometries.forEach((g) => g.dispose());
+    materials.forEach((m) => m.dispose());
+    textures.forEach((t) => t.dispose());
+    this.environment.dirLight.shadow.dispose();
+    this.environment.dispose();
     this.renderer.dispose();
+    this.renderer.domElement.remove();
   }
 }

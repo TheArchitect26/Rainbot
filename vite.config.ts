@@ -6,11 +6,15 @@ import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig(() => {
   return {
+    base: './',
+
     plugins: [
       react(),
       tailwindcss(),
       VitePWA({
-        registerType: 'autoUpdate',
+        disable: process.env.CAPACITOR_BUILD === 'true',
+        registerType: 'prompt',
+        injectRegister: false,
         includeAssets: [
           'icon.svg',
           'favicon.png',
@@ -84,14 +88,14 @@ export default defineConfig(() => {
           ],
         },
         devOptions: {
-          enabled: true,
+          enabled: process.env.CAPACITOR_BUILD !== 'true',
           type: 'module',
         },
       }),
     ],
     resolve: {
       alias: {
-        '@': path.resolve(__dirname, '.'),
+        '@': path.resolve(import.meta.dirname, '.'),
       },
     },
     server: {

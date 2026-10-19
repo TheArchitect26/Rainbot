@@ -24,7 +24,7 @@ export const LevelUpModal: React.FC<LevelUpModalProps> = ({ newLevel, onClose })
   }, [newLevel]);
 
   return (
-    <div className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-black/90 select-none animate-in fade-in zoom-in-95 duration-200">
+    <div role="dialog" aria-modal="true" aria-label="Level up" className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-black/90 select-none animate-in fade-in zoom-in-95 duration-200">
       <div className="w-full max-w-sm bg-neutral-950 border-2 border-yellow-400 rounded-3xl p-6 shadow-[0_0_60px_rgba(250,204,21,0.4)] flex flex-col items-center text-center">
         {/* Banner */}
         <div className="w-16 h-16 rounded-3xl bg-gradient-to-tr from-yellow-400 to-pink-500 flex items-center justify-center shadow-xl animate-bounce mb-3">

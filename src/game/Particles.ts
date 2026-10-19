@@ -17,6 +17,8 @@ export class ParticleSystem {
   public points: THREE.Points;
   private maxParticles = 300;
   private particles: Particle[] = [];
+  private free: Particle[] = Array.from({ length: 300 }, () => ({ x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, life: 0, maxLife: 1, color: new THREE.Color(), size: .3 }));
+  private scratchColor = new THREE.Color();
   private positions: Float32Array;
   private colors: Float32Array;
   private geometry: THREE.BufferGeometry;
@@ -53,50 +55,40 @@ export class ParticleSystem {
     });
 
     this.points = new THREE.Points(this.geometry, material);
+    this.points.frustumCulled = false;
     scene.add(this.points);
   }
 
   public emit(x: number, y: number, z: number, count: number, hexColor: number, speed = 4, life = 0.5) {
-    const col = new THREE.Color(hexColor);
+    const col = this.scratchColor.setHex(hexColor);
     for (let i = 0; i < count; i++) {
-      if (this.particles.length >= this.maxParticles) {
-        this.particles.shift();
-      }
+      if (!this.free.length) break;
 
       const theta = Math.random() * Math.PI * 2;
       const phi = Math.random() * Math.PI;
       const s = speed * (0.4 + Math.random() * 0.6);
 
-      this.particles.push({
-        x,
-        y,
-        z,
-        vx: Math.sin(phi) * Math.cos(theta) * s,
-        vy: Math.abs(Math.cos(phi)) * s * 0.8 + 1.0, // bias upward
-        vz: Math.sin(phi) * Math.sin(theta) * s,
-        life,
-        maxLife: life,
-        color: col.clone(),
-        size: 0.3 + Math.random() * 0.2,
-      });
+      const particle = this.free.pop()!;
+      particle.color.copy(col);
+      particle.x = x; particle.y = y; particle.z = z;
+      particle.vx = Math.sin(phi) * Math.cos(theta) * s;
+      particle.vy = Math.abs(Math.cos(phi)) * s * .8 + 1;
+      particle.vz = Math.sin(phi) * Math.sin(theta) * s;
+      particle.life = life; particle.maxLife = life;
+      this.particles.push(particle);
     }
   }
 
   public emitTrail(x: number, y: number, z: number, hexColor: number) {
     if (this.particles.length >= this.maxParticles) return;
-    const col = new THREE.Color(hexColor);
-    this.particles.push({
-      x: x + (Math.random() - 0.5) * 0.3,
-      y: y + 0.05,
-      z: z + 0.3,
-      vx: (Math.random() - 0.5) * 0.5,
-      vy: Math.random() * 0.6,
-      vz: 2.0,
-      life: 0.25,
-      maxLife: 0.25,
-      color: col,
-      size: 0.25,
-    });
+    const particle = this.free.pop()!;
+    particle.color.setHex(hexColor);
+    particle.x = x + (Math.random() - .5) * .3;
+    particle.y = y + .05; particle.z = z + .3;
+    particle.vx = (Math.random() - .5) * .5;
+    particle.vy = Math.random() * .6; particle.vz = 2;
+    particle.life = .25; particle.maxLife = .25;
+    this.particles.push(particle);
   }
 
   public update(dt: number) {
@@ -104,7 +96,9 @@ export class ParticleSystem {
       const p = this.particles[i];
       p.life -= dt;
       if (p.life <= 0) {
-        this.particles.splice(i, 1);
+        this.free.push(p);
+        this.particles[i] = this.particles[this.particles.length - 1];
+        this.particles.pop();
         continue;
       }
 
@@ -140,7 +134,8 @@ export class ParticleSystem {
   }
 
   public clear() {
-    this.particles = [];
+    this.free.push(...this.particles);
+    this.particles.length = 0;
     for (let i = 0; i < this.maxParticles * 3; i++) {
       this.positions[i] = 0;
       this.colors[i] = 0;

@@ -26,7 +26,7 @@ export const SkinModal: React.FC<SkinModalProps> = ({
   const previewSkin = skins.find((s) => s.id === previewSkinId) || skins[0];
 
   return (
-    <div className="absolute inset-0 z-40 flex items-center justify-center p-4 pt-safe pb-safe bg-black/85 select-none">
+    <div role="dialog" aria-modal="true" aria-label="Skins" className="absolute inset-0 z-40 flex items-center justify-center p-4 pt-safe pb-safe bg-black/85 select-none">
       <div className="w-full max-w-lg bg-neutral-950 border border-cyan-400/50 rounded-3xl p-5 shadow-2xl flex flex-col max-h-[88vh]">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-white/10 pb-3">
@@ -52,6 +52,7 @@ export const SkinModal: React.FC<SkinModalProps> = ({
 
             <button
               onClick={onClose}
+              aria-label="Close"
               className="p-1.5 rounded-xl bg-white/5 hover:bg-white/15 text-neutral-300 hover:text-white transition-all cursor-pointer"
             >
               <X className="w-5 h-5" />
@@ -115,9 +116,9 @@ export const SkinModal: React.FC<SkinModalProps> = ({
             ) : (
               <button
                 onClick={() => onUnlockSkin(previewSkin.id)}
-                disabled={totalCoins < previewSkin.price && (previewSkin.requiredLevel ? progression.level < previewSkin.requiredLevel : true)}
+                disabled={totalCoins < previewSkin.price}
                 className={`px-3.5 py-1.5 rounded-xl text-xs font-arcade font-black uppercase tracking-wider flex items-center gap-1 transition-all ${
-                  totalCoins >= previewSkin.price || (previewSkin.requiredLevel && progression.level >= previewSkin.requiredLevel)
+                  totalCoins >= previewSkin.price
                     ? 'bg-yellow-400 hover:bg-yellow-300 text-black shadow-lg cursor-pointer'
                     : 'bg-neutral-800 text-neutral-500 cursor-not-allowed'
                 }`}
@@ -138,7 +139,9 @@ export const SkinModal: React.FC<SkinModalProps> = ({
             const hasLevel = skin.requiredLevel ? progression.level >= skin.requiredLevel : false;
 
             return (
-              <div
+              <button
+                type="button"
+                aria-pressed={isPreviewing}
                 key={skin.id}
                 onClick={() => setPreviewSkinId(skin.id)}
                 className={`p-3 rounded-2xl border flex flex-col justify-between transition-all cursor-pointer ${
@@ -189,7 +192,7 @@ export const SkinModal: React.FC<SkinModalProps> = ({
                     </div>
                   )}
                 </div>
-              </div>
+              </button>
             );
           })}
         </div>

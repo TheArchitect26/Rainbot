@@ -16,7 +16,7 @@ export const ProgressionModal: React.FC<ProgressionModalProps> = ({
   const xpPct = Math.min(100, Math.floor((progression.currentXP / progression.xpToNextLevel) * 100));
 
   return (
-    <div className="absolute inset-0 z-40 flex items-center justify-center p-4 pt-safe pb-safe bg-black/85 select-none">
+    <div role="dialog" aria-modal="true" aria-label="Progression" className="absolute inset-0 z-40 flex items-center justify-center p-4 pt-safe pb-safe bg-black/85 select-none">
       <div className="w-full max-w-md bg-neutral-950 border border-cyan-400/50 rounded-3xl p-5 shadow-2xl flex flex-col max-h-[88vh]">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-white/10 pb-3">

@@ -1,3 +1,4 @@
+import { storage } from '../utils/storage';
 /**
  * Privacy-Conscious Local Diagnostics & Analytics for BRAINROT RUN.
  * 100% On-Device local storage. Zero telemetry or external server transmissions.
@@ -32,6 +33,8 @@ export interface DiagnosticsData {
   };
   tutorialCompleted: boolean;
   tutorialReplays: number;
+  tutorialStarts: number;
+  tutorialSkips: number;
   rapidRestarts: number; // Restarts within 8s of gameover
   dailyChallengeRuns: number;
   dailyChallengeBest: number;
@@ -51,13 +54,15 @@ const DEFAULT_DIAGNOSTICS: DiagnosticsData = {
   eliminationCauses: {},
   fpsMetrics: {
     samples: 0,
-    avgFps: 60,
-    minFps: 60,
+    avgFps: 0,
+    minFps: 0,
     spikes30: 0,
     spikes50: 0,
   },
   tutorialCompleted: false,
   tutorialReplays: 0,
+  tutorialStarts: 0,
+  tutorialSkips: 0,
   rapidRestarts: 0,
   dailyChallengeRuns: 0,
   dailyChallengeBest: 0,
@@ -65,152 +70,137 @@ const DEFAULT_DIAGNOSTICS: DiagnosticsData = {
   recentRuns: [],
 };
 
-class LocalAnalyticsService {
+export class LocalAnalyticsService {
   private data: DiagnosticsData;
-  private currentRunStartTime: number = 0;
-  private lastGameOverTime: number = 0;
+  private runActive = false;
+  private lastGameOverTime: number | null = null;
 
   constructor() {
     this.data = this.loadData();
   }
 
+  private fresh(): DiagnosticsData {
+    return structuredClone(DEFAULT_DIAGNOSTICS);
+  }
+
   private loadData(): DiagnosticsData {
-    if (typeof localStorage === 'undefined') return { ...DEFAULT_DIAGNOSTICS };
+    const fresh = this.fresh();
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        return { ...DEFAULT_DIAGNOSTICS, ...JSON.parse(raw) };
+      const saved = JSON.parse(storage.getItem(STORAGE_KEY) || 'null');
+      if (!saved || typeof saved !== 'object') return fresh;
+      for (const key of Object.keys(fresh) as (keyof DiagnosticsData)[]) {
+        if (typeof fresh[key] === 'number' && Number.isFinite(saved[key]) && saved[key] >= 0) {
+          Object.assign(fresh, { [key]: saved[key] });
+        }
       }
+      fresh.tutorialCompleted = saved.tutorialCompleted === true;
+      fresh.eliminationCauses = Object.fromEntries(
+        Object.entries(saved.eliminationCauses || {}).filter(
+          ([, n]) => typeof n === 'number' && Number.isFinite(n) && n >= 0,
+        ),
+      ) as Record<string, number>;
+      fresh.recentRuns = Array.isArray(saved.recentRuns)
+        ? saved.recentRuns.filter((r: RunRecord) => r && Number.isFinite(r.distance)).slice(0, 10)
+        : [];
+      // Legacy FPS statistics used a broken capped average. Start a clearly scoped session sample.
     } catch {
-      // Fallback
+      /* Corrupt/older data: retain valid defaults. */
     }
-    return { ...DEFAULT_DIAGNOSTICS };
+    return fresh;
   }
 
   private save() {
-    if (typeof localStorage === 'undefined') return;
-    try {
-      this.data.lastUpdated = new Date().toISOString();
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(this.data));
-    } catch {
-      // Storage quota or disabled
-    }
+    this.data.lastUpdated = new Date().toISOString();
+    storage.setItem(STORAGE_KEY, JSON.stringify(this.data));
   }
 
   public recordRunStart(isDailyChallenge: boolean) {
-    this.currentRunStartTime = performance.now();
-    this.data.totalRunsStarted += 1;
-
-    // Detect rapid restart (started within 8s of last gameover)
-    if (this.lastGameOverTime > 0 && performance.now() - this.lastGameOverTime < 8000) {
-      this.data.rapidRestarts += 1;
-    }
-
-    if (isDailyChallenge) {
-      this.data.dailyChallengeRuns += 1;
-    }
-
+    this.runActive = true;
+    this.data.totalRunsStarted++;
+    if (this.lastGameOverTime !== null && performance.now() - this.lastGameOverTime < 8000)
+      this.data.rapidRestarts++;
+    this.lastGameOverTime = null; // A single death can contribute at most one rapid restart.
+    if (isDailyChallenge) this.data.dailyChallengeRuns++;
     this.save();
+  }
+
+  public abandonRun() {
+    this.runActive = false;
   }
 
   public recordRunEnd(
     score: number,
     distance: number,
     coins: number,
-    eliminatedBy: string = 'UNKNOWN',
-    isDailyChallenge: boolean = false,
-    stageName: string = 'ZONE 1'
+    eliminatedBy = 'UNKNOWN',
+    isDailyChallenge = false,
+    stageName = 'ZONE 1',
+    durationSeconds = 0,
   ) {
+    if (!this.runActive) return;
+    this.runActive = false;
     this.lastGameOverTime = performance.now();
-    const durationSeconds = this.currentRunStartTime > 0
-      ? Math.max(1, Math.round((performance.now() - this.currentRunStartTime) / 1000))
-      : 1;
-
-    this.data.totalRunsCompleted += 1;
+    const n = this.data.totalRunsCompleted;
+    this.data.averageDistance += (distance - this.data.averageDistance) / (n + 1);
+    this.data.totalRunsCompleted++;
     this.data.totalDurationSeconds += durationSeconds;
-    this.data.averageRunDurationSeconds = Math.round(
-      this.data.totalDurationSeconds / this.data.totalRunsCompleted
-    );
-
-    if (distance > this.data.maxDistance) {
-      this.data.maxDistance = distance;
-    }
-
-    const prevTotalDist = this.data.averageDistance * (this.data.totalRunsCompleted - 1);
-    this.data.averageDistance = Math.round((prevTotalDist + distance) / this.data.totalRunsCompleted);
-
-    // Hazard cause breakdown
-    const causeKey = eliminatedBy.toUpperCase();
-    this.data.eliminationCauses[causeKey] = (this.data.eliminationCauses[causeKey] || 0) + 1;
-
-    if (isDailyChallenge && score > this.data.dailyChallengeBest) {
-      this.data.dailyChallengeBest = score;
-    }
-
-    // Append to recent runs history (max 10 records)
-    const runRecord: RunRecord = {
-      id: `run_${Date.now()}`,
-      timestamp: new Date().toLocaleTimeString(),
+    this.data.averageRunDurationSeconds = this.data.totalDurationSeconds / (n + 1);
+    this.data.maxDistance = Math.max(this.data.maxDistance, distance);
+    const cause = eliminatedBy.toUpperCase();
+    this.data.eliminationCauses[cause] = (this.data.eliminationCauses[cause] || 0) + 1;
+    if (isDailyChallenge)
+      this.data.dailyChallengeBest = Math.max(this.data.dailyChallengeBest, score);
+    this.data.recentRuns.unshift({
+      id: `run_${Date.now()}_${this.data.totalRunsCompleted}`,
+      timestamp: new Date().toISOString(),
       score,
       distance,
       coins,
       durationSeconds,
-      eliminatedBy: causeKey,
+      eliminatedBy: cause,
       isDailyChallenge,
       stageName,
-    };
-
-    this.data.recentRuns = [runRecord, ...this.data.recentRuns.slice(0, 9)];
+    });
+    this.data.recentRuns.length = Math.min(10, this.data.recentRuns.length);
     this.save();
   }
 
-  public recordFPS(currentFps: number, frameTimeMs: number) {
-    if (currentFps <= 0 || currentFps > 240) return;
-
+  public recordFPS(_currentFps: number, frameTimeMs: number) {
+    if (!Number.isFinite(frameTimeMs) || frameTimeMs <= 0) return;
     const m = this.data.fpsMetrics;
-    const prevSamples = m.samples;
-    const newSamples = Math.min(prevSamples + 1, 1000); // capped rolling window
-
-    // Running average
-    m.avgFps = Math.round(((m.avgFps * prevSamples) + currentFps) / newSamples);
-    if (currentFps < m.minFps && currentFps > 10) {
-      m.minFps = Math.round(currentFps);
-    }
-
-    if (frameTimeMs > 33.3) {
-      m.spikes30 += 1;
-    }
-    if (frameTimeMs > 50.0) {
-      m.spikes50 += 1;
-    }
-
-    m.samples = newSamples;
-    // Debounced save every 120 samples
-    if (newSamples % 120 === 0) {
-      this.save();
-    }
+    // Harmonic FPS: total frames / elapsed active rendering time. Never cap the denominator.
+    const elapsed = m.samples ? (1000 * m.samples) / m.avgFps : 0;
+    m.samples++;
+    m.avgFps = (1000 * m.samples) / (elapsed + frameTimeMs);
+    const fps = 1000 / frameTimeMs;
+    m.minFps = m.samples === 1 ? fps : Math.min(m.minFps, fps);
+    if (frameTimeMs > 1000 / 30) m.spikes30++;
+    if (frameTimeMs > 50) m.spikes50++;
+    if (m.samples % 300 === 0) this.save();
   }
 
-  public recordTutorialCompleted(isReplay: boolean) {
+  public recordTutorialStart(isReplay: boolean) {
+    this.data.tutorialStarts++;
+    if (isReplay) this.data.tutorialReplays++;
+    this.save();
+  }
+  public recordTutorialSkipped() {
+    this.data.tutorialSkips++;
+    this.save();
+  }
+  public recordTutorialCompleted() {
     this.data.tutorialCompleted = true;
-    if (isReplay) {
-      this.data.tutorialReplays += 1;
-    }
     this.save();
   }
-
   public getDiagnostics(): DiagnosticsData {
-    return { ...this.data };
+    return structuredClone(this.data);
   }
-
   public resetDiagnostics() {
-    this.data = { ...DEFAULT_DIAGNOSTICS, lastUpdated: new Date().toISOString() };
+    this.data = this.fresh();
     this.save();
   }
-
   public exportJSON(): string {
     return JSON.stringify(this.data, null, 2);
   }
 }
-
 export const localAnalytics = new LocalAnalyticsService();

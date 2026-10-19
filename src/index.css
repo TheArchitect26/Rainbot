@@ -83,3 +83,10 @@ html, body, #root {
   background: rgba(6, 182, 212, 0.3);
   border-radius: 4px;
 }
+
+/* Menus remain scrollable while the playfield owns swipe gestures. */
+[role="dialog"], .overflow-y-auto { touch-action: pan-y; overscroll-behavior: contain; }
+button:focus-visible { outline: 3px solid #22d3ee; outline-offset: 3px; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+}

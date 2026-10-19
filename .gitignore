@@ -6,3 +6,11 @@ coverage/
 *.log
 .env*
 !.env.example
+
+dev-dist/
+android/local.properties
+
+test-results/
+playwright-report/
+*.jks
+*.keystore

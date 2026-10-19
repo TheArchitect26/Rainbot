@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, Activity, Cpu, ShieldCheck, Copy, Check, RotateCcw, AlertTriangle, Eye } from 'lucide-react';
 import { DiagnosticsData, localAnalytics } from '../utils/analytics';
 
@@ -15,6 +15,8 @@ export const DiagnosticsModal: React.FC<DiagnosticsModalProps> = ({
 }) => {
   const [data, setData] = useState<DiagnosticsData>(() => localAnalytics.getDiagnostics());
   const [copied, setCopied] = useState(false);
+  const [copyError, setCopyError] = useState('');
+  useEffect(() => { const timer = window.setInterval(() => setData(localAnalytics.getDiagnostics()), 1000); return () => clearInterval(timer); }, []);
 
   const handleCopyJSON = async () => {
     try {
@@ -22,7 +24,7 @@ export const DiagnosticsModal: React.FC<DiagnosticsModalProps> = ({
       setCopied(true);
       setTimeout(() => setCopied(false), 2200);
     } catch {
-      // ignore
+      setCopyError('Clipboard unavailable. Export from a secure browser context.');
     }
   };
 
@@ -34,7 +36,7 @@ export const DiagnosticsModal: React.FC<DiagnosticsModalProps> = ({
   };
 
   return (
-    <div className="absolute inset-0 z-50 flex items-center justify-center p-3 sm:p-4 pt-safe pb-safe bg-black/90 select-none">
+    <div role="dialog" aria-modal="true" aria-label="Diagnostics" className="absolute inset-0 z-50 flex items-center justify-center p-3 sm:p-4 pt-safe pb-safe bg-black/90 select-none">
       <div className="w-full max-w-lg bg-neutral-950 border-2 border-cyan-400/60 rounded-3xl p-5 shadow-2xl flex flex-col max-h-[90vh]">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-white/10 pb-3">
@@ -116,7 +118,7 @@ export const DiagnosticsModal: React.FC<DiagnosticsModalProps> = ({
               <div className="bg-neutral-950 p-2 rounded-xl border border-white/5">
                 <span className="text-[9px] text-neutral-400 block font-bold">AVG DURATION</span>
                 <span className="font-arcade text-base font-black text-cyan-300 tabular-nums">
-                  {data.averageRunDurationSeconds}s
+                  {Math.round(data.averageRunDurationSeconds)}s
                 </span>
               </div>
               <div className="bg-neutral-950 p-2 rounded-xl border border-white/5">
@@ -131,7 +133,7 @@ export const DiagnosticsModal: React.FC<DiagnosticsModalProps> = ({
               <div className="bg-neutral-950 p-2 rounded-xl border border-white/5">
                 <span className="text-[9px] text-neutral-400 block font-bold">AVG DISTANCE</span>
                 <span className="font-arcade text-sm font-black text-cyan-400 tabular-nums">
-                  {data.averageDistance}m
+                  {Math.round(data.averageDistance)}m
                 </span>
               </div>
               <div className="bg-neutral-950 p-2 rounded-xl border border-white/5">
@@ -184,7 +186,7 @@ export const DiagnosticsModal: React.FC<DiagnosticsModalProps> = ({
                 {data.tutorialCompleted ? 'COMPLETED' : 'PENDING'}
               </span>
               <span className="text-[10px] text-neutral-400 font-mono block mt-0.5">
-                Replayed: {data.tutorialReplays} times
+                Started: {data.tutorialStarts} · Skipped: {data.tutorialSkips} · Replayed: {data.tutorialReplays}
               </span>
             </div>
           </div>
@@ -224,6 +226,8 @@ export const DiagnosticsModal: React.FC<DiagnosticsModalProps> = ({
           </div>
         </div>
 
+        <p role="status">{copyError}</p>
+        <p className="text-xs text-neutral-400">FPS samples cover active rendering this session. Run duration excludes pauses.</p>
         {/* Footer Actions */}
         <div className="border-t border-white/10 pt-3 flex items-center gap-2">
           <button
