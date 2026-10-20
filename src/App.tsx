@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 import { CUSTOM_SKINS_KEY, MAX_CUSTOM_SKINS, normalizeCustomSkin, parseCustomSkins, unlockRankSkins, accessoryForRank } from './utils/skinStudio';
+import { LeaderboardModal } from './components/LeaderboardModal';
+import { finishRankedRun, type OnlinePlayer, type RankedTicket } from './utils/leaderboard';
 import { useRegisterSW } from 'virtual:pwa-register/react';
 import { Capacitor } from '@capacitor/core';
 import { App as NativeApp } from '@capacitor/app';
@@ -138,6 +140,13 @@ export default function App() {
     updateServiceWorker,
   } = useRegisterSW();
   const [eliminationCause, setEliminationCause] = useState('');
+  const [isLeaderboardOpen, setIsLeaderboardOpen] = useState(false);
+  const [rankingStatus, setRankingStatus] = useState('');
+  const [canRetryRanking, setCanRetryRanking] = useState(false);
+  const retryRankingRef = useRef<(() => void) | null>(null);
+  const rankedRunRef = useRef<{ ticket: RankedTicket; player: OnlinePlayer } | null>(null);
+  const rankingGeneration = useRef(0);
+  const [isRankedRun, setIsRankedRun] = useState(false);
   const [isSkinModalOpen, setIsSkinModalOpen] = useState<boolean>(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState<boolean>(false);
   const [isMissionsModalOpen, setIsMissionsModalOpen] = useState<boolean>(false);
@@ -275,6 +284,26 @@ export default function App() {
       setTutorialCompleted(true);
     },
     onGameOver: (finalStats, cause) => {
+      const online = rankedRunRef.current;
+      rankedRunRef.current = null;
+      const generation = rankingGeneration.current;
+      if (online) {
+        const submit = () => {
+          setCanRetryRanking(false);
+          setRankingStatus('Submitting ranked distance…');
+          void finishRankedRun(online.ticket, online.player, finalStats.distance, finalStats.durationSeconds || 0)
+            .then(board => { if (generation === rankingGeneration.current) {
+              setCanRetryRanking(false);
+              setRankingStatus(board.me ? `Rank #${board.me.rank} · ${online.ticket.day} UTC · ${board.me.distance}m best` : 'Ranked run saved.');
+            } })
+            .catch(error => { if (generation === rankingGeneration.current) {
+              setCanRetryRanking(true);
+              setRankingStatus(`Not submitted: ${error.message} Local rewards are saved.`);
+            } });
+        };
+        retryRankingRef.current = submit;
+        submit();
+      }
       setEliminationCause(cause || 'COLLISION');
       setGameStatus('GAMEOVER');
 
@@ -430,6 +459,7 @@ export default function App() {
         if (isLevelUpModalOpen) setIsLevelUpModalOpen(false);
         else if (isDiagnosticsOpen) setIsDiagnosticsOpen(false);
         else if (isSettingsModalOpen) setIsSettingsModalOpen(false);
+        else if (isLeaderboardOpen) setIsLeaderboardOpen(false);
         else if (isSkinModalOpen) setIsSkinModalOpen(false);
         else if (isMissionsModalOpen) setIsMissionsModalOpen(false);
         else if (isProgressionModalOpen) setIsProgressionModalOpen(false);
@@ -463,6 +493,7 @@ export default function App() {
     };
   }, [
     gameStatus,
+    isLeaderboardOpen,
     isSkinModalOpen,
     isSettingsModalOpen,
     isMissionsModalOpen,
@@ -489,8 +520,8 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    engineRef.current?.setStudioOpen(isSkinModalOpen);
-  }, [isSkinModalOpen]);
+    engineRef.current?.setStudioOpen(isSkinModalOpen || isLeaderboardOpen);
+  }, [isSkinModalOpen, isLeaderboardOpen]);
 
   // Sync skin changes
   useEffect(() => {
@@ -553,6 +584,7 @@ export default function App() {
       if (
         e.repeat ||
         isSettingsModalOpen ||
+        isLeaderboardOpen ||
         isSkinModalOpen ||
         isMissionsModalOpen ||
         isProgressionModalOpen ||
@@ -608,7 +640,8 @@ export default function App() {
     [
       gameStatus,
       isSettingsModalOpen,
-      isSkinModalOpen,
+      isLeaderboardOpen,
+    isSkinModalOpen,
       isMissionsModalOpen,
       isProgressionModalOpen,
       isDiagnosticsOpen,
@@ -623,6 +656,12 @@ export default function App() {
   }, [handleKeyDown]);
 
   const startTutorial = (replay = false) => {
+    rankedRunRef.current = null;
+    rankingGeneration.current++;
+    setIsRankedRun(false);
+    setRankingStatus('');
+    setCanRetryRanking(false);
+    retryRankingRef.current = null;
     tutorialRef.current = true;
     tutorialReplayRef.current = replay;
     tutorialRewardRef.current = storage.getItem('brainrot_tutorial_rewarded_v1') !== 'true';
@@ -635,6 +674,12 @@ export default function App() {
   };
 
   const handleStartGame = () => {
+    rankedRunRef.current = null;
+    rankingGeneration.current++;
+    setIsRankedRun(false);
+    setRankingStatus('');
+    setCanRetryRanking(false);
+    retryRankingRef.current = null;
     if (storage.getItem('brainrot_tutorial_seen_v1') !== 'true') {
       startTutorial();
       return;
@@ -648,7 +693,31 @@ export default function App() {
     engineRef.current?.reset(currentSelectedSkin, false);
   };
 
+  const handleStartRanked = (ticket: RankedTicket, player: OnlinePlayer) => {
+    rankedRunRef.current = { ticket, player };
+    rankingGeneration.current++;
+    setRankingStatus('');
+    setCanRetryRanking(false);
+    retryRankingRef.current = null;
+    setIsRankedRun(true);
+    setIsLeaderboardOpen(false);
+    tutorialRef.current = false;
+    setTutorial(prev => ({ ...prev, active: false }));
+    runDayRef.current = ticket.day;
+    setDailyChallengeBest(readNumber(`brainrot_daily_best_${ticket.day}`));
+    setIsDailyChallengeActive(true);
+    setIsNewHigh(false);
+    setGameStatus('PLAYING');
+    engineRef.current?.reset(currentSelectedSkin, true, ticket.day);
+  };
+
   const handleStartDailyChallenge = () => {
+    rankedRunRef.current = null;
+    rankingGeneration.current++;
+    setIsRankedRun(false);
+    setRankingStatus('');
+    setCanRetryRanking(false);
+    retryRankingRef.current = null;
     tutorialRef.current = false;
     setTutorial((prev) => ({ ...prev, active: false }));
     runDayRef.current = getUTCDayString();
@@ -660,6 +729,12 @@ export default function App() {
   };
 
   const handleRestartGame = () => {
+    rankedRunRef.current = null;
+    rankingGeneration.current++;
+    setIsRankedRun(false);
+    setRankingStatus('');
+    setCanRetryRanking(false);
+    retryRankingRef.current = null;
     if (tutorialRef.current) {
       startTutorial(tutorialReplayRef.current);
       return;
@@ -681,6 +756,12 @@ export default function App() {
   };
 
   const handleQuitToMenu = () => {
+    rankedRunRef.current = null;
+    rankingGeneration.current++;
+    setIsRankedRun(false);
+    setRankingStatus('');
+    setCanRetryRanking(false);
+    retryRankingRef.current = null;
     tutorialRef.current = false;
     setTutorial((prev) => ({ ...prev, active: false }));
     updateMissions((missions) => missions);
@@ -832,6 +913,7 @@ export default function App() {
           onStartTutorial={() => startTutorial(tutorialCompleted)}
           onOpenDiagnostics={() => setIsDiagnosticsOpen(true)}
           onStart={handleStartGame}
+          onOpenLeaderboard={() => setIsLeaderboardOpen(true)}
           onStartDailyChallenge={handleStartDailyChallenge}
           onOpenSkins={() => setIsSkinModalOpen(true)}
           onOpenMissions={() => setIsMissionsModalOpen(true)}
@@ -842,6 +924,7 @@ export default function App() {
 
       {gameStatus === 'PLAYING' && (
         <GameHUD
+          ranked={isRankedRun}
           showChallenge={!tutorial.active}
           stats={{ ...stats, highScore, totalCoins }}
           powerUps={powerUps}
@@ -866,6 +949,8 @@ export default function App() {
 
       {gameStatus === 'GAMEOVER' && (
         <GameOverModal
+          rankingStatus={rankingStatus}
+          onRetryRanking={canRetryRanking ? () => retryRankingRef.current?.() : undefined}
           stats={{ ...stats, highScore }}
           isNewHigh={isNewHigh}
           selectedSkin={currentSelectedSkin}
@@ -922,6 +1007,7 @@ export default function App() {
         </p>
       )}
       {/* Modals */}
+      {isLeaderboardOpen && <LeaderboardModal onClose={() => setIsLeaderboardOpen(false)} onStart={handleStartRanked} />}
       {isSkinModalOpen && (
         <SkinModal
           skins={skins}
