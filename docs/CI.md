@@ -2,7 +2,7 @@
 
 `.github/workflows/validate.yml` runs on pull requests, pushes to `main`, and manual dispatch. It does not merge, deploy, publish a release or upload anything to an app store.
 
-The **Web checks** job installs the npm lockfile on Node 24, checks TypeScript, runs the mechanics/persistence tests, installs Playwright Chromium, runs the mobile/seeded/offline browser tests, and builds the production web/PWA bundle. Failed browser runs retain `test-results` for seven days.
+The **Web checks** job installs the npm lockfile on Node 24, checks TypeScript, runs the mechanics/persistence tests, installs Playwright Chromium, runs the mobile/seeded/offline/studio/ranking browser tests (with an isolated in-memory SQLite service), and builds the production web/PWA bundle. Failed browser runs retain `test-results` for seven days.
 
 Only after web checks succeed, **Android debug APK** selects a full Temurin JDK 21, installs SDK Platform 36 and Build-Tools 35.0.0 (AGP's default) plus 36.0.0, builds/syncs native assets and runs `assembleDebug`. It verifies the APK signature and uploads `app-debug.apk`, its SHA-256 file and commit/run provenance as `brainrot-run-debug-<run number>` for 14 days. Third-party Actions are pinned to verified commit SHAs; the workflow has read-only repository permissions.
 

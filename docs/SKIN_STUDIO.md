@@ -11,7 +11,7 @@
 
 ## Limits
 
-Customizations are palettes and material finishes of the existing mascot, not a mesh editor or image uploader. All runners retain the same hitbox and abilities. Saves are local to this browser/app; blocked or full storage falls back to the current session and cannot guarantee persistence after closing. The existing storage-warning UI remains active.
+The original robot palettes remain editable. The studio now also includes an original street runner, clothing and skin/hair/shoe colors; see [AVATAR_CHALLENGES.md](AVATAR_CHALLENGES.md). It is not a mesh editor or image uploader. All runners retain the same hitbox and abilities. Saves are local to this browser/app; blocked or full storage falls back to the current session and cannot guarantee persistence after closing. The existing storage-warning UI remains active.
 
 A small secondary WebGL context renders the studio preview at DPR 1 / 240×180 / up to 30fps. The hidden menu scene stops rendering while the studio is open. Palette updates reuse the model; closing disposes its geometries, materials, texture and renderer. The game does not gain any network service or paid feature.
 
