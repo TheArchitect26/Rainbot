@@ -48,7 +48,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   };
 
   return (
-    <div className="absolute inset-0 z-40 flex items-center justify-center p-4 bg-black/85 select-none">
+    <div role="dialog" aria-modal="true" aria-label="Settings" className="absolute inset-0 z-40 flex items-center justify-center p-4 bg-black/85 select-none">
       <div className="w-full max-w-md bg-neutral-950 border border-cyan-400/40 rounded-3xl p-5 shadow-2xl flex flex-col max-h-[85vh]">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-white/10 pb-3">
@@ -76,6 +76,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </div>
             </div>
             <button
+              aria-label="Game audio" role="switch" aria-checked={!isMuted}
               onClick={onToggleMute}
               className={`w-12 h-7 rounded-full transition-colors flex items-center p-1 cursor-pointer ${
                 !isMuted ? 'bg-cyan-500 justify-end' : 'bg-neutral-700 justify-start'
@@ -95,6 +96,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </div>
             </div>
             <button
+              aria-label="Haptic vibration" role="switch" aria-checked={vibrationEnabled}
               onClick={() => onToggleVibration(!vibrationEnabled)}
               className={`w-12 h-7 rounded-full transition-colors flex items-center p-1 cursor-pointer ${
                 vibrationEnabled ? 'bg-pink-500 justify-end' : 'bg-neutral-700 justify-start'
@@ -114,6 +116,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </div>
             </div>
             <button
+              aria-label="On-screen buttons" role="switch" aria-checked={showOnScreenControls}
               onClick={() => onToggleOnScreenControls(!showOnScreenControls)}
               className={`w-12 h-7 rounded-full transition-colors flex items-center p-1 cursor-pointer ${
                 showOnScreenControls ? 'bg-yellow-400 justify-end' : 'bg-neutral-700 justify-start'
@@ -133,6 +136,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </div>
             </div>
             <button
+              aria-label="Real-time shadows" role="switch" aria-checked={shadowsEnabled}
               onClick={() => onToggleShadows(!shadowsEnabled)}
               className={`w-12 h-7 rounded-full transition-colors flex items-center p-1 cursor-pointer ${
                 shadowsEnabled ? 'bg-purple-500 justify-end' : 'bg-neutral-700 justify-start'

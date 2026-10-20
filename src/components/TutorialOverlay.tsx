@@ -11,21 +11,23 @@ export interface TutorialState {
 
 interface TutorialOverlayProps {
   tutorial: TutorialState;
+  rewardGranted: boolean;
   onSkip: () => void;
   onFinish: () => void;
 }
 
 export const TutorialOverlay: React.FC<TutorialOverlayProps> = ({
   tutorial,
+  rewardGranted,
   onSkip,
   onFinish,
 }) => {
   if (!tutorial.active) return null;
 
   return (
-    <div className="absolute inset-0 pointer-events-none z-30 flex flex-col justify-between p-4 pt-safe pb-safe select-none">
+    <div className="absolute inset-0 pointer-events-none z-30 flex flex-col justify-between p-4 pt-20 pb-safe select-none">
       {/* Top Bar: Step progress & Skip CTA */}
-      <div className="flex items-center justify-between w-full pointer-events-auto">
+      <div className="flex items-center justify-between gap-2 flex-wrap w-full pointer-events-auto">
         <div className="flex items-center gap-2 bg-black/85 border border-cyan-400/60 px-3.5 py-1.5 rounded-full shadow-lg">
           <Sparkles className="w-4 h-4 text-cyan-400" />
           <span className="font-arcade text-xs font-bold text-cyan-300 uppercase tracking-wider">
@@ -76,7 +78,7 @@ export const TutorialOverlay: React.FC<TutorialOverlayProps> = ({
               )}
             </div>
 
-            <h3 className="font-arcade text-lg sm:text-xl font-black text-white uppercase tracking-wider glow-cyan">
+            <h3 aria-live="polite" className="font-arcade text-lg sm:text-xl font-black text-white uppercase tracking-wider glow-cyan">
               {tutorial.title}
             </h3>
             <p className="text-xs text-neutral-300 mt-1 font-sans font-medium leading-relaxed max-w-[280px]">
@@ -110,8 +112,8 @@ export const TutorialOverlay: React.FC<TutorialOverlayProps> = ({
             </p>
 
             <div className="w-full bg-neutral-900 border border-yellow-400/40 rounded-2xl py-2 px-3 mt-3 flex items-center justify-around text-xs">
-              <span className="text-yellow-300 font-bold">+100 COINS BONUS</span>
-              <span className="text-cyan-300 font-bold">+150 XP AWARDED</span>
+              <span className="text-yellow-300 font-bold">{rewardGranted ? '+100 COINS BONUS' : 'PRACTICE COMPLETE'}</span>
+              <span className="text-cyan-300 font-bold">{rewardGranted ? '+150 XP AWARDED' : 'BONUS ONCE ONLY'}</span>
             </div>
 
             <button

@@ -421,7 +421,7 @@ export class CharacterModel {
       this.materialsToUpdate[1].color.setHex(colors.secondary);
     }
     this.glowColorHex = '#' + colors.glow.toString(16).padStart(6, '0');
-    this.antennaBobble.material = new THREE.MeshBasicMaterial({ color: colors.glow });
+    (this.antennaBobble.material as THREE.MeshBasicMaterial).color.setHex(colors.glow);
     this.renderVisorFace(this.currentExpression, this.isBlinking, 0);
   }
 
@@ -445,6 +445,7 @@ export class CharacterModel {
     globalTime: number
   ) {
     // 1. Natural Blinking & Expression update
+    const wasBlinking = this.isBlinking;
     this.blinkTimer += dt;
     if (this.blinkTimer > 2.8) {
       this.isBlinking = true;
@@ -454,7 +455,7 @@ export class CharacterModel {
       }
     }
 
-    if (this.currentExpression !== status || this.isBlinking) {
+    if (this.currentExpression !== status || wasBlinking !== this.isBlinking) {
       this.currentExpression = status;
       const lookDir = Math.max(-1, Math.min(1, tiltAngle * 2.5));
       this.renderVisorFace(status, this.isBlinking, lookDir);
@@ -585,7 +586,7 @@ export class CharacterModel {
   public setDebugHitbox(enabled: boolean, isSliding: boolean) {
     let box = this.group.getObjectByName('debug_hitbox') as THREE.LineSegments | undefined;
     if (!box) {
-      const geo = new THREE.EdgesGeometry(new THREE.BoxGeometry(1.0, 1.8, 0.9));
+      const geo = new THREE.EdgesGeometry(new THREE.BoxGeometry(.8, 1.75, .64));
       const mat = new THREE.LineBasicMaterial({ color: 0x00ff00 });
       box = new THREE.LineSegments(geo, mat);
       box.name = 'debug_hitbox';
@@ -594,11 +595,11 @@ export class CharacterModel {
     box.visible = enabled;
     if (enabled) {
       if (isSliding) {
-        box.scale.set(1.0, 0.45, 1.2);
-        box.position.set(0, 0.4, 0);
+        box.scale.set(1 / this.group.scale.x, .45 / 1.75 / this.group.scale.y, 1 / this.group.scale.z);
+        box.position.set(0, .225 / this.group.scale.y, 0);
       } else {
-        box.scale.set(1.0, 1.0, 1.0);
-        box.position.set(0, 0.9, 0);
+        box.scale.set(1 / this.group.scale.x, 1 / this.group.scale.y, 1 / this.group.scale.z);
+        box.position.set(0, .875 / this.group.scale.y, 0);
       }
     }
   }

@@ -8,7 +8,7 @@ export class CollectibleManager {
   private coinMeshPool: Map<number, THREE.Mesh> = new Map();
   private powerUpMeshPool: Map<number, THREE.Group> = new Map();
 
-  // Recycled object pools (zero-allocation during gameplay)
+  // Recycled meshes with shared GPU resources
   private freeCoins: THREE.Mesh[] = [];
   private freePowerUps: Map<PowerUpType, THREE.Group[]> = new Map();
 
@@ -67,7 +67,19 @@ export class CollectibleManager {
       });
       const haloMat = new THREE.MeshBasicMaterial({ color: col });
       this.powerUpMaterials.set(type, { gemMat, haloMat });
+      for (let i = 0; i < 2; i++) {
+        const group = this.createPowerUpMesh(type);
+        group.visible = false;
+        this.group.add(group);
+        this.freePowerUps.get(type)!.push(group);
+      }
     });
+    for (let i = 0; i < 64; i++) {
+      const mesh = new THREE.Mesh(this.coinGeo, this.coinMat);
+      mesh.visible = false;
+      this.group.add(mesh);
+      this.freeCoins.push(mesh);
+    }
   }
 
   public spawnCoin(lane: Lane, z: number, y: number = 0.8): CoinInstance {
@@ -256,6 +268,8 @@ export class CollectibleManager {
   }
 
   public clear() {
+    this.nextCoinId = 1;
+    this.nextPowerUpId = 1;
     for (const [, mesh] of this.coinMeshPool) {
       mesh.visible = false;
       this.freeCoins.push(mesh);

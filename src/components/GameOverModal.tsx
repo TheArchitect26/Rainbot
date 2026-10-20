@@ -70,7 +70,7 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
   };
 
   return (
-    <div className="absolute inset-0 z-30 flex items-center justify-center p-4 pt-safe pb-safe bg-black/85 select-none overflow-y-auto">
+    <div role="dialog" aria-modal="true" aria-label="Game over" className="absolute inset-0 z-30 flex items-center justify-center p-4 pt-safe pb-safe bg-black/85 select-none overflow-y-auto">
       <div className="w-full max-w-sm bg-neutral-950 border-2 border-red-500/50 rounded-3xl p-5 shadow-[0_0_50px_rgba(239,68,68,0.3)] flex flex-col items-center text-center my-auto">
         {/* Mode Tag */}
         {stats.isDailyChallenge ? (

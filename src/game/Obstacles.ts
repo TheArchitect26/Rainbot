@@ -7,6 +7,8 @@ export class ObstacleManager {
   private meshPool: Map<number, THREE.Group> = new Map();
   private freePool: Map<ObstacleType, THREE.Group[]> = new Map();
   private nextId = 1;
+  private random: () => number = Math.random;
+  public setRandom(random: () => number) { this.random = random; this.nextId = 1; }
   private debugHitboxesEnabled = false;
 
   // Shared procedural geometries & materials (100% reused across all spawns)
@@ -118,7 +120,15 @@ export class ObstacleManager {
     this.lowDebugGeo = new THREE.EdgesGeometry(new THREE.BoxGeometry(1.9, 0.65, 0.5));
     this.highDebugGeo = new THREE.EdgesGeometry(new THREE.BoxGeometry(2.1, 1.4, 0.5));
     this.fullDebugGeo = new THREE.EdgesGeometry(new THREE.BoxGeometry(2.0, 3.2, 0.6));
-    this.droneDebugGeo = new THREE.EdgesGeometry(new THREE.BoxGeometry(1.8, 1.5, 1.8));
+    this.droneDebugGeo = new THREE.EdgesGeometry(new THREE.BoxGeometry(1.9, 1.5, .5));
+    for (const type of this.freePool.keys()) {
+      for (let i = 0; i < 8; i++) {
+        const mesh = this.createObstacleMesh(type);
+        mesh.visible = false;
+        this.group.add(mesh);
+        this.freePool.get(type)!.push(mesh);
+      }
+    }
   }
 
   public setDebugHitboxes(enabled: boolean) {
@@ -250,8 +260,8 @@ export class ObstacleManager {
       height: type === 'LOW_BARRIER' ? 0.72 : type === 'HIGH_BARRIER' ? 2.8 : 3.2,
       yOffset: type === 'HIGH_BARRIER' ? 1.3 : 0,
       initialLane: lane,
-      moveDirection: Math.random() > 0.5 ? 1 : -1,
-      moveSpeed: 2.0 + Math.random() * 1.2,
+      moveDirection: this.random() > 0.5 ? 1 : -1,
+      moveSpeed: 2.0 + this.random() * 1.2,
       passed: false,
     };
 

@@ -45,9 +45,9 @@ export const StartScreen: React.FC<StartScreenProps> = ({
   const levelTitle = getLevelTitle(progression.level);
 
   return (
-    <div className="absolute inset-0 z-20 flex flex-col justify-between p-3.5 sm:p-4 pt-safe pb-safe pl-safe pr-safe select-none pointer-events-none">
+    <div className="absolute inset-0 z-20 flex flex-col justify-between p-3.5 sm:p-4 pt-safe pb-safe pl-safe pr-safe select-none pointer-events-auto overflow-y-auto">
       {/* Top Header: Rank, Coins & Modals */}
-      <div className="flex items-center justify-between w-full pointer-events-auto">
+      <div className="flex items-center justify-between w-full pointer-events-auto flex-wrap gap-2 shrink-0">
         {/* Left: Player Level & Rank Badge (Clickable to open Progression) */}
         <button
           onClick={onOpenProgression}
@@ -105,7 +105,7 @@ export const StartScreen: React.FC<StartScreenProps> = ({
       <div className="my-auto flex flex-col items-center justify-center pointer-events-none" />
 
       {/* Bottom Control & Play Section */}
-      <div className="flex flex-col items-center w-full max-w-sm mx-auto gap-2.5 pointer-events-auto pb-1">
+      <div className="flex flex-col items-center w-full max-w-sm mx-auto gap-2.5 pointer-events-auto pb-1 shrink-0">
         {/* Bespoke Mobile SVG Title Lockup */}
         <div className="w-full px-2">
           <svg viewBox="0 0 500 130" className="w-full h-auto drop-shadow-[0_0_25px_rgba(6,182,212,0.6)]">

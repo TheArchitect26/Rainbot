@@ -1,3 +1,4 @@
+import { storage } from '../utils/storage';
 import { getDailySeed, getUTCDayString, SeededPRNG } from '../utils/prng';
 
 export interface DailyMission {
@@ -119,13 +120,18 @@ export function generateDailyMissionsForDate(dateStr: string): DailyMission[] {
 // Retrieves current daily missions from localStorage, auto-resetting if UTC date changed
 export function getOrRefreshDailyMissions(): { date: string; missions: DailyMission[] } {
   const todayUTC = getUTCDayString();
-  const raw = localStorage.getItem('brainrot_daily_missions_v3');
+  const raw = storage.getItem('brainrot_daily_missions_v3');
 
   if (raw) {
     try {
       const data: StoredDailyMissions = JSON.parse(raw);
       if (data.date === todayUTC && Array.isArray(data.missions) && data.missions.length === 3) {
-        return data;
+        const templates = generateDailyMissionsForDate(todayUTC);
+        return { date: todayUTC, missions: templates.map((template) => {
+          const saved = data.missions.find((m) => m && m.id === template.id);
+          const current = saved && Number.isFinite(saved.current) ? Math.max(0, saved.current) : 0;
+          return { ...template, current, completed: current >= template.target, claimed: current >= template.target && saved?.claimed === true };
+        }) };
       }
     } catch {
       // JSON parse error, regenerate
@@ -135,7 +141,7 @@ export function getOrRefreshDailyMissions(): { date: string; missions: DailyMiss
   // Generate for today
   const fresh = generateDailyMissionsForDate(todayUTC);
   const payload: StoredDailyMissions = { date: todayUTC, missions: fresh };
-  localStorage.setItem('brainrot_daily_missions_v3', JSON.stringify(payload));
+  storage.setItem('brainrot_daily_missions_v3', JSON.stringify(payload));
   return payload;
 }
 

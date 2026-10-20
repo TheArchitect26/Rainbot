@@ -86,6 +86,12 @@ export class EnvironmentManager {
   private laneLineMaterials: THREE.MeshBasicMaterial[] = [];
   private roadMaterials: THREE.MeshStandardMaterial[] = [];
   private currentTheme: EnvironmentThemes = { ...THEME_DEFAULT };
+  private billboardTimer = 1;
+  private targetFog = new THREE.Color(THEME_DEFAULT.fogColor);
+  private targetSky = new THREE.Color(THEME_DEFAULT.ambientSky);
+  private targetGround = new THREE.Color(THEME_DEFAULT.ambientGround);
+  private targetSun = new THREE.Color(THEME_DEFAULT.sunColor);
+  private reflection: THREE.WebGLRenderTarget;
   private targetTheme: EnvironmentThemes = { ...THEME_DEFAULT };
 
   constructor(scene: THREE.Scene, renderer: THREE.WebGLRenderer) {
@@ -93,7 +99,10 @@ export class EnvironmentManager {
 
     // 1. Mandatory Studio Environment Reflection
     const pmremGenerator = new THREE.PMREMGenerator(renderer);
-    scene.environment = pmremGenerator.fromScene(new RoomEnvironment(), 0.04).texture;
+    const room = new RoomEnvironment();
+    this.reflection = pmremGenerator.fromScene(room, 0.04);
+    scene.environment = this.reflection.texture;
+    room.dispose();
     pmremGenerator.dispose();
 
     // 2. Horizon-Matched Fog
@@ -148,6 +157,7 @@ export class EnvironmentManager {
     this.buildTrackSegments(renderer);
     this.buildCitySkyline();
     this.buildHoverTraffic();
+    for (const object of [...this.trackSegments, ...this.cityGroup.children, ...this.trafficCars.map((c) => c.mesh)]) object.userData.initialZ = object.position.z;
   }
 
   private createAnimatedBillboard(title: string, subtitle: string, color: string, badge: string) {
@@ -403,7 +413,10 @@ export class EnvironmentManager {
     this.retroSunGroup.position.z = playerZ;
 
     // 5. Animate Holographic Billboards (pulsating borders & scanlines)
-    for (let b = 0; b < this.billboardCanvases.length; b++) {
+    this.billboardTimer += dt;
+    const refreshBillboards = this.billboardTimer >= .1;
+    if (refreshBillboards) this.billboardTimer = 0;
+    for (let b = 0; refreshBillboards && b < this.billboardCanvases.length; b++) {
       const { ctx, texture, meme } = this.billboardCanvases[b];
       const pulse = Math.sin(globalTime * 3 + b) * 0.5 + 0.5;
 
@@ -452,15 +465,19 @@ export class EnvironmentManager {
     }
 
     // 6. Smooth Theme Transitions (interpolating fog & lights)
-    this.fog.color.lerp(new THREE.Color(this.targetTheme.fogColor), dt * 3.5);
+    this.fog.color.lerp(this.targetFog, dt * 3.5);
     (this.scene.background as THREE.Color).copy(this.fog.color);
-    this.hemiLight.color.lerp(new THREE.Color(this.targetTheme.ambientSky), dt * 3.5);
-    this.hemiLight.groundColor.lerp(new THREE.Color(this.targetTheme.ambientGround), dt * 3.5);
-    this.sunMaterial.color.lerp(new THREE.Color(this.targetTheme.sunColor), dt * 3.5);
+    this.hemiLight.color.lerp(this.targetSky, dt * 3.5);
+    this.hemiLight.groundColor.lerp(this.targetGround, dt * 3.5);
+    this.sunMaterial.color.lerp(this.targetSun, dt * 3.5);
   }
 
   public setTheme(theme: EnvironmentThemes) {
     this.targetTheme = theme;
+    this.targetFog.setHex(theme.fogColor);
+    this.targetSky.setHex(theme.ambientSky);
+    this.targetGround.setHex(theme.ambientGround);
+    this.targetSun.setHex(theme.sunColor);
     for (const mat of this.laneLineMaterials) {
       mat.color.setHex(theme.neonCyan);
     }
@@ -468,6 +485,14 @@ export class EnvironmentManager {
       mat.color.setHex(theme.groundColor);
     }
   }
+
+  public reset() {
+    for (const object of this.trackSegments) object.position.z = object.userData.initialZ;
+    for (const object of this.cityGroup.children) object.position.z = object.userData.initialZ;
+    for (const car of this.trafficCars) car.mesh.position.z = car.mesh.userData.initialZ;
+  }
+
+  public dispose() { this.reflection.dispose(); }
 
   public resetTheme() {
     this.setTheme(THEME_DEFAULT);
