@@ -1,3 +1,4 @@
+import { RunnerCamera } from './RunnerCamera';
 import { hitsObstacle } from '../utils/mechanics';
 import { storage } from '../utils/storage';
 import * as THREE from 'three';
@@ -77,6 +78,12 @@ export const STAGES: StageInfo[] = [
 ];
 
 export class GameEngine {
+  private studioOpen = false;
+  public setStudioOpen(open: boolean) { this.studioOpen = open; }
+
+  private readonly runnerCamera = new RunnerCamera();
+  private readonly reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+
   public scene: THREE.Scene;
   public camera: THREE.PerspectiveCamera;
   public renderer: THREE.WebGLRenderer;
@@ -237,6 +244,7 @@ export class GameEngine {
       secondary: parseInt(initialSkin.secondaryColor.replace('#', '0x')),
       glow: parseInt(initialSkin.glowColor.replace('#', '0x')),
       accent: 0xffffff,
+      finish: initialSkin.finish,
     });
 
     this.character.setShadowsEnabled(this.renderer.shadowMap.enabled);
@@ -648,12 +656,12 @@ export class GameEngine {
       lastTime = time;
       const dt = Math.min(rawDt, 0.05);
 
-      if (document.hidden) return;
+      if (document.hidden || this.studioOpen) return;
       this.globalTime += dt;
       this.character.animate(dt, 'IDLE', 1.0, 0, this.globalTime);
 
-      const floatY = 1.9 + Math.sin(this.globalTime * 1.5) * 0.12;
-      const floatX = Math.sin(this.globalTime * 0.8) * 0.45;
+      const floatY = 1.9 + (this.reducedMotion.matches ? 0 : Math.sin(this.globalTime * 1.5) * 0.04);
+      const floatX = this.reducedMotion.matches ? 0 : Math.sin(this.globalTime * 0.8) * 0.12;
       this.camera.position.set(floatX, floatY, this.playerZ + 3.8);
       this.camera.lookAt(0, 1.15, this.playerZ);
 
@@ -733,6 +741,7 @@ export class GameEngine {
       secondary: parseInt(skin.secondaryColor.replace('#', '0x')),
       glow: parseInt(skin.glowColor.replace('#', '0x')),
       accent: 0xffffff,
+      finish: skin.finish,
     });
   }
 
@@ -973,27 +982,15 @@ export class GameEngine {
       this.checkCollisions();
     }
 
-    // 10. Mobile Camera positioning
-    let shakeX = 0;
-    let shakeY = 0;
-    if (this.cameraShake > 0) {
-      shakeX = (Math.random() - 0.5) * this.cameraShake;
-      shakeY = (Math.random() - 0.5) * this.cameraShake;
-      this.cameraShake = THREE.MathUtils.damp(this.cameraShake, 0, 7, dt);
-    }
-
-    const camTargetX = this.playerX * 0.4 + shakeX;
-    const camTargetY = this.playerY * 0.35 + (this.isSliding ? 2.5 : 2.95) + shakeY;
+    // Stable horizon and limited lane follow leave the approaching lanes readable.
     const isBoosting =
       this.activePowerUps.has('SPEED_BOOST') ||
       (this.chaosState.active && this.chaosState.type === 'TURBO_SPEED');
-    const camTargetZ = this.playerZ + (isBoosting ? 5.6 : 4.9);
-
-    this.camera.position.x = THREE.MathUtils.damp(this.camera.position.x, camTargetX, 11, dt);
-    this.camera.position.y = THREE.MathUtils.damp(this.camera.position.y, camTargetY, 11, dt);
-    this.camera.position.z = THREE.MathUtils.damp(this.camera.position.z, camTargetZ, 12, dt);
-
-    this.camera.lookAt(this.playerX * 0.2, this.playerY * 0.22 + 1.25, this.playerZ - 10.0);
+    const rig = this.runnerCamera;
+    rig.update(dt, this.playerX, isBoosting, this.globalTime, !this.reducedMotion.matches, this.cameraShake);
+    this.cameraShake = THREE.MathUtils.damp(this.cameraShake, 0, 7, dt);
+    this.camera.position.set(rig.x, rig.y, this.playerZ + rig.offsetZ);
+    this.camera.lookAt(rig.lookX, rig.lookY, this.playerZ - rig.lookAhead);
 
     // 11. Dispatch stats to React UI
     const score = Math.floor(this.distanceTraveled) + this.coinsCollected * 10;
@@ -1261,7 +1258,9 @@ export class GameEngine {
     const width = this.container.clientWidth || window.innerWidth;
     const height = this.container.clientHeight || window.innerHeight;
     this.updateCameraFOV(width, height);
-    this.camera.position.set(0, 2.95, 4.9);
+    this.runnerCamera.reset();
+    this.camera.position.set(0, this.runnerCamera.y, this.runnerCamera.offsetZ);
+    this.camera.lookAt(0, this.runnerCamera.lookY, -this.runnerCamera.lookAhead);
 
     this.resetRuntime();
     this.prepareTutorialStep();
@@ -1398,7 +1397,9 @@ export class GameEngine {
     const width = this.container.clientWidth || window.innerWidth;
     const height = this.container.clientHeight || window.innerHeight;
     this.updateCameraFOV(width, height);
-    this.camera.position.set(0, 2.95, 4.9);
+    this.runnerCamera.reset();
+    this.camera.position.set(0, this.runnerCamera.y, this.runnerCamera.offsetZ);
+    this.camera.lookAt(0, this.runnerCamera.lookY, -this.runnerCamera.lookAhead);
 
     this.populateInitialTrack();
     this.start();

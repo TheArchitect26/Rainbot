@@ -2,7 +2,7 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  */
-
+import { CUSTOM_SKINS_KEY, MAX_CUSTOM_SKINS, normalizeCustomSkin, parseCustomSkins } from './utils/skinStudio';
 import { useRegisterSW } from 'virtual:pwa-register/react';
 import { Capacitor } from '@capacitor/core';
 import { App as NativeApp } from '@capacitor/app';
@@ -52,15 +52,15 @@ export default function App() {
     if (saved) {
       try {
         const unlockedIds: string[] = JSON.parse(saved);
-        return AVAILABLE_SKINS.map((s) => ({
+        return [...AVAILABLE_SKINS.map((s) => ({
           ...s,
           unlocked: s.unlocked || (Array.isArray(unlockedIds) && unlockedIds.includes(s.id)),
-        }));
+        })), ...parseCustomSkins(storage.getItem(CUSTOM_SKINS_KEY))];
       } catch {
-        return AVAILABLE_SKINS;
+        return [...AVAILABLE_SKINS, ...parseCustomSkins(storage.getItem(CUSTOM_SKINS_KEY))];
       }
     }
-    return AVAILABLE_SKINS;
+    return [...AVAILABLE_SKINS, ...parseCustomSkins(storage.getItem(CUSTOM_SKINS_KEY))];
   });
 
   const [selectedSkinId, setSelectedSkinId] = useState<string>(() => {
@@ -422,7 +422,7 @@ export default function App() {
     if (!dialog) return;
     const previous = document.activeElement as HTMLElement | null;
     const controls = () => [
-      ...dialog.querySelectorAll<HTMLElement>('button:not(:disabled), [tabindex="0"]'),
+      ...dialog.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex="0"]'),
     ];
     controls()[0]?.focus();
     const trap = (event: KeyboardEvent) => {
@@ -489,6 +489,10 @@ export default function App() {
       document.removeEventListener('visibilitychange', refreshDay);
     };
   }, []);
+
+  useEffect(() => {
+    engineRef.current?.setStudioOpen(isSkinModalOpen);
+  }, [isSkinModalOpen]);
 
   // Sync skin changes
   useEffect(() => {
@@ -719,6 +723,30 @@ export default function App() {
     storage.setItem('brainrot_selected_skin', skin.id);
   };
 
+  const handleSaveCustomSkin = (draft: Skin): boolean => {
+    const skin = normalizeCustomSkin(draft);
+    if (!skin) return false;
+    const existing = skinsRef.current.find(s => s.id === skin.id);
+    if (!existing && skinsRef.current.filter(s => s.custom).length >= MAX_CUSTOM_SKINS) return false;
+    const updated = existing
+      ? skinsRef.current.map(s => s.id === skin.id ? skin : s)
+      : [...skinsRef.current, skin];
+    skinsRef.current = updated;
+    setSkins(updated);
+    storage.setItem(CUSTOM_SKINS_KEY, JSON.stringify(updated.filter(s => s.custom)));
+    handleSelectSkin(skin);
+    return true;
+  };
+
+  const handleDeleteCustomSkin = (id: string) => {
+    if (!skinsRef.current.some(s => s.id === id && s.custom)) return;
+    const updated = skinsRef.current.filter(s => s.id !== id);
+    skinsRef.current = updated;
+    setSkins(updated);
+    storage.setItem(CUSTOM_SKINS_KEY, JSON.stringify(updated.filter(s => s.custom)));
+    if (selectedSkinId === id) handleSelectSkin(updated[0]);
+  };
+
   const handleUnlockSkin = (skinId: string) => {
     const skinToUnlock = skinsRef.current.find((s) => s.id === skinId);
     if (
@@ -901,6 +929,8 @@ export default function App() {
           totalCoins={totalCoins}
           progression={progression}
           onSelectSkin={handleSelectSkin}
+          onSaveCustomSkin={handleSaveCustomSkin}
+          onDeleteCustomSkin={handleDeleteCustomSkin}
           onUnlockSkin={handleUnlockSkin}
           onClose={() => setIsSkinModalOpen(false)}
         />

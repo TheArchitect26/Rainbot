@@ -1,6 +1,9 @@
+import { finishMaterial } from '../utils/skinStudio';
+import type { Skin } from '../types/game';
 import * as THREE from 'three';
 
 export interface SkinColors {
+  finish?: Skin['finish'];
   primary: number;
   secondary: number;
   glow: number;
@@ -67,8 +70,7 @@ export class CharacterModel {
     // Materials with PBR discipline (varied roughness/metalness)
     const primaryMat = new THREE.MeshStandardMaterial({
       color: colors.primary,
-      roughness: 0.28,
-      metalness: 0.75,
+      ...finishMaterial(colors.finish),
     });
     this.materialsToUpdate.push(primaryMat);
 
@@ -416,6 +418,7 @@ export class CharacterModel {
   public updateSkin(colors: SkinColors) {
     if (this.materialsToUpdate[0]) {
       this.materialsToUpdate[0].color.setHex(colors.primary);
+      Object.assign(this.materialsToUpdate[0], finishMaterial(colors.finish));
     }
     if (this.materialsToUpdate[1]) {
       this.materialsToUpdate[1].color.setHex(colors.secondary);

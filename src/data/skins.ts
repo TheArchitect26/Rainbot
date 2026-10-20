@@ -39,6 +39,7 @@ export const AVAILABLE_SKINS: Skin[] = [
   },
   {
     id: 'glitch_phantom',
+    finish: 'MATTE',
     name: 'Glitch Phantom',
     tagline: 'Ghost in the data stream, cloaked in dark violet',
     price: 350,
@@ -51,6 +52,7 @@ export const AVAILABLE_SKINS: Skin[] = [
   },
   {
     id: 'golden_sigma',
+    finish: 'CHROME',
     name: 'Pure Sigma',
     tagline: '100% pure clout and golden authority',
     price: 500,
@@ -63,6 +65,7 @@ export const AVAILABLE_SKINS: Skin[] = [
   },
   {
     id: 'cyber_samurai',
+    finish: 'MATTE',
     name: 'Cyber Samurai',
     tagline: 'Honorable warrior forged in corrupted data',
     price: 650,
@@ -87,6 +90,7 @@ export const AVAILABLE_SKINS: Skin[] = [
   },
   {
     id: 'quantum_hologram',
+    finish: 'CHROME',
     name: 'Quantum Prism',
     tagline: 'Transcendental runner existing in all dimensions',
     price: 1200,

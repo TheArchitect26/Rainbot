@@ -99,6 +99,8 @@ export interface PlayerStats {
 }
 
 export interface Skin {
+  custom?: boolean;
+  finish?: 'SATIN' | 'CHROME' | 'MATTE';
   id: string;
   name: string;
   tagline: string;
