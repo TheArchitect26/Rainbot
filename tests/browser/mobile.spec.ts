@@ -6,8 +6,9 @@ test('first play: action gates, safe retry, completion reward, saved replay, ski
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await page.clock.install({ time: new Date('2026-10-19T12:00:00Z') });
+  // Freeze before navigation so page startup cannot overtake the clock deadline.
+  await page.clock.pauseAt(new Date('2026-10-19T12:00:01Z'));
   await page.goto('/');
-  await page.clock.pauseAt(new Date('2026-10-19T12:00:10Z'));
   // Deliberately render at 10Hz while retaining the actual 120Hz simulation.
   // This exercises frame-drop safety and keeps software-WebGL CI practical.
   const advance = async (ms: number) => {

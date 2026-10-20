@@ -14,6 +14,7 @@ interface StartScreenProps {
   unclaimedMissionsCount: number;
   isTutorialCompleted?: boolean;
   onStart: () => void;
+  onOpenLeaderboard: () => void;
   onStartDailyChallenge: () => void;
   onStartTutorial?: () => void;
   onOpenSkins: () => void;
@@ -32,6 +33,7 @@ export const StartScreen: React.FC<StartScreenProps> = ({
   unclaimedMissionsCount,
   isTutorialCompleted,
   onStart,
+  onOpenLeaderboard,
   onStartDailyChallenge,
   onStartTutorial,
   onOpenSkins,
@@ -186,6 +188,7 @@ export const StartScreen: React.FC<StartScreenProps> = ({
           </button>
         </div>
 
+        <button onClick={onOpenLeaderboard} className="w-full min-h-11 bg-black/85 border border-yellow-400/50 rounded-xl text-yellow-200 text-sm font-bold flex justify-center items-center gap-2"><Trophy size={16} />World rankings</button>
         {/* Secondary Buttons Row: Skins, Rank & Install */}
         <div className="flex items-center gap-2 w-full">
           <button

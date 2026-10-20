@@ -1,7 +1,15 @@
-import React, { useState } from 'react';
-import { X, Check, Lock, Sparkles, Coins, Award } from 'lucide-react';
-import { Skin } from '../types/game';
-import { PlayerProgression } from '../types/progression';
+import { hasStorageFailure } from '../utils/storage';
+import { useLayoutEffect, useRef, useState } from 'react';
+import { X, Check, Coins } from 'lucide-react';
+import type { Skin } from '../types/game';
+import type { PlayerProgression } from '../types/progression';
+import {
+  MAX_CUSTOM_SKINS,
+  SKIN_FINISHES,
+  ACCESSORY_RANKS,
+  accessoryForRank,
+} from '../utils/skinStudio';
+import { SkinPreview } from './SkinPreview';
 
 interface SkinModalProps {
   skins: Skin[];
@@ -9,194 +17,417 @@ interface SkinModalProps {
   totalCoins: number;
   progression: PlayerProgression;
   onSelectSkin: (skin: Skin) => void;
-  onUnlockSkin: (skinId: string) => void;
+  onUnlockSkin: (id: string) => void;
+  onSaveCustomSkin: (skin: Skin) => boolean;
+  onDeleteCustomSkin: (id: string) => void;
   onClose: () => void;
 }
 
-export const SkinModal: React.FC<SkinModalProps> = ({
+export function SkinModal({
   skins,
   selectedSkinId,
   totalCoins,
   progression,
   onSelectSkin,
   onUnlockSkin,
+  onSaveCustomSkin,
+  onDeleteCustomSkin,
   onClose,
-}) => {
-  const [previewSkinId, setPreviewSkinId] = useState<string>(selectedSkinId);
-  const previewSkin = skins.find((s) => s.id === previewSkinId) || skins[0];
-
+}: SkinModalProps) {
+  const panel = useRef<HTMLDivElement>(null);
+  const [previewId, setPreviewId] = useState(selectedSkinId);
+  const [draft, setDraft] = useState<Skin | null>(null);
+  const [message, setMessage] = useState('');
+  const [deleteId, setDeleteId] = useState<string | null>(null);
+  const selected = skins.find((s) => s.id === previewId) || skins[0];
+  const preview = draft || selected;
+  const editing = draft !== null;
+  useLayoutEffect(() => {
+    panel.current?.scrollTo({ top: 0 });
+  }, [previewId, editing]);
+  const customCount = skins.filter((s) => s.custom).length;
+  const create = () => {
+    setDeleteId(null);
+    setDraft({
+      ...selected,
+      id: `custom_${crypto.randomUUID?.() ?? Array.from(crypto.getRandomValues(new Uint32Array(4)), (n) => n.toString(16)).join('-')}`,
+      name: 'My Runner',
+      accessory: accessoryForRank(selected.accessory, progression.level),
+      custom: true,
+      unlocked: true,
+      price: 0,
+      rarity: undefined,
+      requiredLevel: undefined,
+    });
+    setMessage('');
+  };
   return (
-    <div role="dialog" aria-modal="true" aria-label="Skins" className="absolute inset-0 z-40 flex items-center justify-center p-4 pt-safe pb-safe bg-black/85 select-none">
-      <div className="w-full max-w-lg bg-neutral-950 border border-cyan-400/50 rounded-3xl p-5 shadow-2xl flex flex-col max-h-[88vh]">
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-white/10 pb-3">
-          <div className="flex items-center gap-2">
-            <Sparkles className="w-5 h-5 text-cyan-400" />
-            <div>
-              <h2 className="font-arcade text-xl font-black text-white tracking-wider uppercase">
-                MASCOT CLOSET
-              </h2>
-              <span className="text-[10px] text-neutral-400 font-mono">
-                COSMETICS NEVER ALTER GAMEPLAY HITBOXES
-              </span>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-1.5 bg-neutral-900 border border-yellow-400/40 px-3 py-1 rounded-xl">
-              <Coins className="w-4 h-4 text-yellow-400" />
-              <span className="font-arcade text-sm font-bold text-yellow-400 tabular-nums">
-                {totalCoins.toLocaleString()}
-              </span>
-            </div>
-
-            <button
-              onClick={onClose}
-              aria-label="Close"
-              className="p-1.5 rounded-xl bg-white/5 hover:bg-white/15 text-neutral-300 hover:text-white transition-all cursor-pointer"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-        </div>
-
-        {/* Selected Skin Hero Preview Card */}
-        <div className="my-2.5 p-3 rounded-2xl bg-neutral-900/80 border border-white/15 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            {/* Color Swatch Orb */}
-            <div
-              className="w-12 h-12 rounded-2xl border-2 flex items-center justify-center shadow-lg relative overflow-hidden"
-              style={{
-                backgroundColor: previewSkin.primaryColor,
-                borderColor: previewSkin.glowColor,
-                boxShadow: `0 0 20px ${previewSkin.glowColor}55`,
-              }}
-            >
-              <div
-                className="w-5 h-5 rounded-full absolute -bottom-1 -right-1"
-                style={{ backgroundColor: previewSkin.secondaryColor }}
-              />
-            </div>
-
-            <div>
-              <div className="flex items-center gap-1.5">
-                <span className="font-arcade font-bold text-sm text-white">{previewSkin.name}</span>
-                {previewSkin.rarity && (
-                  <span
-                    className={`text-[9px] font-black uppercase px-1.5 py-0.2 rounded font-arcade ${
-                      previewSkin.rarity === 'LEGENDARY'
-                        ? 'bg-purple-500/30 text-purple-300 border border-purple-400'
-                        : previewSkin.rarity === 'EPIC'
-                        ? 'bg-yellow-500/30 text-yellow-300 border border-yellow-400'
-                        : 'bg-cyan-500/30 text-cyan-300 border border-cyan-400'
-                    }`}
-                  >
-                    {previewSkin.rarity}
-                  </span>
-                )}
-              </div>
-              <p className="text-[11px] text-neutral-300 mt-0.5 line-clamp-1">{previewSkin.tagline}</p>
-            </div>
-          </div>
-
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Skins"
+      className="absolute inset-0 z-40 flex items-center justify-center p-3 pt-safe pb-safe bg-black/85"
+    >
+      <div
+        ref={panel}
+        className="w-full max-w-lg max-h-[90dvh] overflow-y-auto rounded-3xl border border-cyan-400/50 bg-neutral-950 p-4 shadow-2xl"
+      >
+        <div className="flex items-center justify-between gap-2">
           <div>
-            {previewSkin.unlocked ? (
-              previewSkin.id === selectedSkinId ? (
-                <span className="text-xs font-arcade font-bold text-cyan-400 flex items-center gap-1 px-3 py-1 rounded-xl bg-cyan-950/40 border border-cyan-500/50">
-                  <Check className="w-4 h-4" /> EQUIPPED
-                </span>
-              ) : (
-                <button
-                  onClick={() => onSelectSkin(previewSkin)}
-                  className="px-4 py-1.5 rounded-xl bg-cyan-400 hover:bg-cyan-300 text-black font-arcade font-black text-xs uppercase tracking-wider transition-all cursor-pointer shadow-md"
-                >
-                  EQUIP
-                </button>
-              )
-            ) : (
-              <button
-                onClick={() => onUnlockSkin(previewSkin.id)}
-                disabled={totalCoins < previewSkin.price}
-                className={`px-3.5 py-1.5 rounded-xl text-xs font-arcade font-black uppercase tracking-wider flex items-center gap-1 transition-all ${
-                  totalCoins >= previewSkin.price
-                    ? 'bg-yellow-400 hover:bg-yellow-300 text-black shadow-lg cursor-pointer'
-                    : 'bg-neutral-800 text-neutral-500 cursor-not-allowed'
-                }`}
-              >
-                <Lock className="w-3.5 h-3.5" />
-                <span>{previewSkin.price} COINS</span>
-              </button>
-            )}
+            <h2 className="font-arcade text-lg text-white">RUNNER STUDIO</h2>
+            <p className="text-xs text-neutral-400">
+              Your look. Same skills, same hitbox.
+            </p>
           </div>
+          <button
+            onClick={onClose}
+            aria-label="Close"
+            className="min-h-11 min-w-11 rounded-xl bg-white/10 text-white flex items-center justify-center"
+          >
+            <X />
+          </button>
         </div>
-
-        {/* Skins Grid List */}
-        <div className="grid grid-cols-2 gap-2.5 overflow-y-auto py-1 pr-1">
-          {skins.map((skin) => {
-            const isEquipped = skin.id === selectedSkinId;
-            const isPreviewing = skin.id === previewSkinId;
-            const canAfford = totalCoins >= skin.price;
-            const hasLevel = skin.requiredLevel ? progression.level >= skin.requiredLevel : false;
-
-            return (
-              <button
-                type="button"
-                aria-pressed={isPreviewing}
-                key={skin.id}
-                onClick={() => setPreviewSkinId(skin.id)}
-                className={`p-3 rounded-2xl border flex flex-col justify-between transition-all cursor-pointer ${
-                  isEquipped
-                    ? 'border-cyan-400 bg-cyan-950/30 shadow-[0_0_15px_rgba(6,182,212,0.25)]'
-                    : isPreviewing
-                    ? 'border-pink-500/80 bg-neutral-900/90'
-                    : skin.unlocked
-                    ? 'border-white/10 bg-neutral-900/60 hover:border-white/30'
-                    : 'border-white/5 bg-neutral-900/30 opacity-75'
-                }`}
+        <SkinPreview skin={preview} />
+        <div className="flex items-start justify-between gap-2 mb-3">
+          <div>
+            <h3 className="font-bold text-white">{preview.name}</h3>
+            <p className="text-xs text-neutral-400">
+              {draft ? 'Live preview · save to equip' : preview.tagline}
+            </p>
+            <p className="text-xs text-cyan-300">
+              {preview.finish || 'SATIN'}
+              {preview.rarity ? ` · ${preview.rarity}` : ''}
+            </p>
+          </div>
+          <span className="flex items-center gap-1 text-yellow-300 text-sm shrink-0">
+            <Coins size={16} />
+            {totalCoins.toLocaleString()}
+          </span>
+        </div>
+        {draft ? (
+          <form
+            className="space-y-3"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (onSaveCustomSkin(draft)) {
+                setPreviewId(draft.id);
+                setDraft(null);
+                setMessage(
+                  hasStorageFailure()
+                    ? 'Runner equipped for this session. Device storage is unavailable.'
+                    : 'Runner saved and equipped.',
+                );
+              } else
+                setMessage(
+                  'Could not save. Check the name and available slots.',
+                );
+            }}
+          >
+            <label className="block text-sm text-white">
+              Runner name
+              <input
+                required
+                maxLength={24}
+                value={draft.name}
+                onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+                className="block w-full rounded-xl bg-neutral-800 px-3 min-h-11 mt-1"
+              />
+            </label>
+            <label className="block text-sm text-white">
+              Character
+              <select
+                aria-label="Character"
+                value={draft.avatar || 'CYBER'}
+                onChange={(e) =>
+                  setDraft({
+                    ...draft,
+                    avatar: e.target.value as Skin['avatar'],
+                  })
+                }
+                className="block w-full bg-neutral-800 rounded-xl min-h-11 px-3 mt-1"
               >
-                <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <span className="font-arcade font-bold text-xs text-white truncate max-w-[100px]">
-                      {skin.name}
-                    </span>
-                    <div className="flex items-center gap-1">
-                      <div
-                        className="w-3 h-3 rounded-full border border-black/50"
-                        style={{ backgroundColor: skin.primaryColor }}
-                      />
-                      <div
-                        className="w-3 h-3 rounded-full border border-black/50"
-                        style={{ backgroundColor: skin.secondaryColor }}
-                      />
-                    </div>
-                  </div>
-                  <p className="text-[10px] text-neutral-400 line-clamp-1">{skin.tagline}</p>
+                <option value="STREET">Street runner</option>
+                <option value="CYBER">Cyber mascot</option>
+              </select>
+            </label>
+            {draft.avatar === 'STREET' && (
+              <>
+                <div className="grid grid-cols-2 gap-2">
+                  {(
+                    [
+                      ['outfit', 'Top', ['TEE', 'HOODIE', 'JACKET'], 'TEE'],
+                      ['bottom', 'Bottom', ['SHORTS', 'JOGGERS'], 'SHORTS'],
+                      [
+                        'hair',
+                        'Hair style',
+                        ['QUIFF', 'CURLS', 'CAP'],
+                        'QUIFF',
+                      ],
+                    ] as const
+                  ).map(([key, label, options, fallback]) => (
+                    <label key={key} className="text-sm text-white">
+                      {label}
+                      <select
+                        aria-label={label}
+                        value={draft[key] || fallback}
+                        onChange={(e) =>
+                          setDraft({ ...draft, [key]: e.target.value })
+                        }
+                        className="block w-full bg-neutral-800 rounded-xl min-h-11 px-2 mt-1"
+                      >
+                        {options.map((v) => (
+                          <option key={v}>{v}</option>
+                        ))}
+                      </select>
+                    </label>
+                  ))}
                 </div>
-
-                <div className="mt-2.5 pt-2 border-t border-white/10 flex items-center justify-between">
-                  {skin.unlocked ? (
-                    isEquipped ? (
-                      <span className="text-[10px] font-bold text-cyan-400 flex items-center gap-1">
-                        <Check className="w-3 h-3" /> ACTIVE
-                      </span>
-                    ) : (
-                      <span className="text-[10px] text-neutral-400 font-mono">OWNED</span>
-                    )
-                  ) : (
-                    <div className="flex items-center gap-1 text-[10px] font-bold text-yellow-400">
-                      <Coins className="w-3 h-3" />
-                      <span>{skin.price}</span>
-                      {skin.requiredLevel && (
-                        <span className="text-neutral-500 font-normal">/ L{skin.requiredLevel}</span>
-                      )}
-                    </div>
+                <div className="grid grid-cols-3 gap-2">
+                  {(['skinTone', 'hairColor', 'shoeColor'] as const).map(
+                    (key, index) => (
+                      <label key={key} className="text-xs text-neutral-300">
+                        {['Skin tone', 'Hair color', 'Shoe color'][index]}
+                        <input
+                          type="color"
+                          aria-label={
+                            ['Skin tone', 'Hair color', 'Shoe color'][index]
+                          }
+                          value={
+                            draft[key] ||
+                            ['#e8ac82', '#332042', '#f8fafc'][index]
+                          }
+                          onChange={(e) =>
+                            setDraft({ ...draft, [key]: e.target.value })
+                          }
+                          className="block w-full h-11 mt-1"
+                        />
+                      </label>
+                    ),
                   )}
                 </div>
+              </>
+            )}
+            <div className="grid grid-cols-3 gap-2">
+              {(['primaryColor', 'secondaryColor', 'glowColor'] as const).map(
+                (key, index) => (
+                  <label key={key} className="text-xs text-neutral-300">
+                    {['Suit color', 'Trim color', 'Glow color'][index]}
+                    <input
+                      type="color"
+                      aria-label={
+                        ['Suit color', 'Trim color', 'Glow color'][index]
+                      }
+                      value={draft[key]}
+                      onChange={(e) =>
+                        setDraft({ ...draft, [key]: e.target.value })
+                      }
+                      className="block w-full h-11 mt-1 cursor-pointer"
+                    />
+                  </label>
+                ),
+              )}
+            </div>
+            {draft.avatar === 'STREET' && (
+              <label className="block text-sm text-white">
+                Rank accessory
+                <select
+                  aria-label="Rank accessory"
+                  value={draft.accessory || 'NONE'}
+                  onChange={(e) =>
+                    setDraft({
+                      ...draft,
+                      accessory: e.target.value as Skin['accessory'],
+                    })
+                  }
+                  className="block w-full bg-neutral-800 rounded-xl min-h-11 px-3 mt-1"
+                >
+                  {Object.entries(ACCESSORY_RANKS).map(([value, rank]) => (
+                    <option
+                      key={value}
+                      value={value}
+                      disabled={progression.level < rank}
+                    >
+                      {value === 'NONE'
+                        ? 'None'
+                        : `${value.replace('_', ' ')} · rank ${rank}`}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            <label className="block text-sm text-white">
+              Finish
+              <select
+                aria-label="Finish"
+                value={draft.finish || 'SATIN'}
+                onChange={(e) =>
+                  setDraft({
+                    ...draft,
+                    finish: e.target.value as Skin['finish'],
+                  })
+                }
+                className="block w-full bg-neutral-800 rounded-xl min-h-11 px-3 mt-1"
+              >
+                {SKIN_FINISHES.map((f) => (
+                  <option key={f}>{f}</option>
+                ))}
+              </select>
+            </label>
+            <div className="flex gap-2">
+              <button
+                type="submit"
+                className="flex-1 bg-cyan-300 text-black rounded-xl min-h-11 font-bold"
+              >
+                Save & equip
               </button>
-            );
-          })}
-        </div>
+              <button
+                type="button"
+                onClick={() => setDraft(null)}
+                className="px-4 rounded-xl min-h-11 bg-white/10 text-white"
+              >
+                Cancel
+              </button>
+            </div>
+            <p className="text-xs text-neutral-400">
+              Free · stored on this device · {customCount}/{MAX_CUSTOM_SKINS}{' '}
+              custom runners
+            </p>
+          </form>
+        ) : (
+          <>
+            {selected.unlocked ? (
+              <div className="flex gap-2 flex-wrap">
+                <button
+                  disabled={selected.id === selectedSkinId}
+                  onClick={() => onSelectSkin(selected)}
+                  className="flex-1 rounded-xl bg-cyan-300 disabled:bg-cyan-950 disabled:text-cyan-200 text-black min-h-11 font-bold flex items-center justify-center gap-1"
+                >
+                  {selected.id === selectedSkinId ? (
+                    <>
+                      <Check size={16} />
+                      Equipped
+                    </>
+                  ) : (
+                    'Equip'
+                  )}
+                </button>
+                {selected.custom && (
+                  <>
+                    <button
+                      onClick={() => {
+                        setDeleteId(null);
+                        setDraft({ ...selected });
+                        setMessage('');
+                      }}
+                      className="min-h-11 px-3 bg-white/10 rounded-xl text-white"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      onClick={() => setDeleteId(selected.id)}
+                      className="min-h-11 px-3 bg-white/10 rounded-xl text-red-300"
+                    >
+                      Delete
+                    </button>
+                  </>
+                )}
+              </div>
+            ) : (
+              <div>
+                <button
+                  disabled={selected.rankOnly || totalCoins < selected.price}
+                  onClick={() => onUnlockSkin(selected.id)}
+                  className="min-h-11 w-full rounded-xl bg-yellow-300 disabled:bg-neutral-800 disabled:text-neutral-400 text-black font-bold"
+                >
+                  {selected.rankOnly
+                    ? `Earn at rank level ${selected.requiredLevel}`
+                    : `Unlock · ${selected.price} coins`}
+                </button>
+                {selected.requiredLevel && (
+                  <p className="text-xs text-neutral-400 mt-2">
+                    {selected.rankOnly
+                      ? 'Unlocks automatically at rank level'
+                      : 'Or unlock free at level'}{' '}
+                    {selected.requiredLevel} · current level {progression.level}
+                  </p>
+                )}
+              </div>
+            )}
+            {deleteId && (
+              <div className="mt-3 p-3 rounded-xl bg-red-950 text-white">
+                <p>Delete this custom runner? This cannot be undone.</p>
+                <div className="flex gap-3">
+                  <button
+                    className="min-h-11 underline"
+                    onClick={() => {
+                      onDeleteCustomSkin(deleteId);
+                      setPreviewId(skins[0].id);
+                      setDeleteId(null);
+                      setMessage('Custom runner deleted.');
+                    }}
+                  >
+                    Confirm delete
+                  </button>
+                  <button
+                    className="min-h-11 underline"
+                    onClick={() => setDeleteId(null)}
+                  >
+                    Keep runner
+                  </button>
+                </div>
+              </div>
+            )}
+            <button
+              disabled={customCount >= MAX_CUSTOM_SKINS}
+              onClick={create}
+              className="w-full min-h-11 mt-3 rounded-xl border border-cyan-400 text-cyan-200 disabled:opacity-40"
+            >
+              Create a runner · {customCount}/{MAX_CUSTOM_SKINS}
+            </button>
+            <div className="grid grid-cols-2 gap-2 mt-3">
+              {skins.map((s) => (
+                <button
+                  key={s.id}
+                  aria-pressed={s.id === selected.id}
+                  onClick={() => {
+                    setPreviewId(s.id);
+                    setDeleteId(null);
+                    setMessage('');
+                  }}
+                  className={`text-left rounded-xl p-3 min-h-20 border ${s.id === selected.id ? 'border-cyan-300 bg-cyan-950/40' : 'border-white/15 bg-neutral-900'}`}
+                >
+                  <div className="flex gap-1 mb-2" aria-hidden="true">
+                    {[s.primaryColor, s.secondaryColor, s.glowColor].map(
+                      (c, i) => (
+                        <span
+                          key={i}
+                          className="w-6 h-3 rounded"
+                          style={{ background: c }}
+                        />
+                      ),
+                    )}
+                  </div>
+                  <span className="block text-sm text-white break-words">
+                    {s.name}
+                  </span>
+                  <span className="text-xs text-neutral-400">
+                    {s.custom
+                      ? 'Your creation'
+                      : s.unlocked
+                        ? 'Owned'
+                        : s.rankOnly
+                          ? `Rank level ${s.requiredLevel} reward`
+                          : `${s.price} coins · or level ${s.requiredLevel}`}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+        <p role="status" className="text-sm text-cyan-200 mt-2">
+          {message}
+        </p>
       </div>
     </div>
   );
-};
+}

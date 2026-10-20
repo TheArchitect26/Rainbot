@@ -13,7 +13,8 @@
     "test:browser": "playwright test",
     "android:sync": "npm run build:android && cap sync android",
     "build:android": "CAPACITOR_BUILD=true vite build",
-    "android:open": "cap open android"
+    "android:open": "cap open android",
+    "leaderboard:serve": "node server/start.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

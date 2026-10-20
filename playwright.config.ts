@@ -17,6 +17,11 @@ export default defineConfig({
   },
   webServer: [
     {
+      command: 'LEADERBOARD_DB=:memory: ALLOWED_ORIGINS=http://127.0.0.1:3100 npm run leaderboard:serve',
+      url: 'http://127.0.0.1:8787/api/leaderboard/health',
+      reuseExistingServer: false,
+    },
+    {
       command: 'DISABLE_HMR=true npm run dev -- --port 3100',
       url: 'http://127.0.0.1:3100',
       reuseExistingServer: !process.env.CI,

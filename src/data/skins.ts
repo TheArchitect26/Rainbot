@@ -39,6 +39,7 @@ export const AVAILABLE_SKINS: Skin[] = [
   },
   {
     id: 'glitch_phantom',
+    finish: 'MATTE',
     name: 'Glitch Phantom',
     tagline: 'Ghost in the data stream, cloaked in dark violet',
     price: 350,
@@ -51,6 +52,7 @@ export const AVAILABLE_SKINS: Skin[] = [
   },
   {
     id: 'golden_sigma',
+    finish: 'CHROME',
     name: 'Pure Sigma',
     tagline: '100% pure clout and golden authority',
     price: 500,
@@ -63,6 +65,7 @@ export const AVAILABLE_SKINS: Skin[] = [
   },
   {
     id: 'cyber_samurai',
+    finish: 'MATTE',
     name: 'Cyber Samurai',
     tagline: 'Honorable warrior forged in corrupted data',
     price: 650,
@@ -87,6 +90,7 @@ export const AVAILABLE_SKINS: Skin[] = [
   },
   {
     id: 'quantum_hologram',
+    finish: 'CHROME',
     name: 'Quantum Prism',
     tagline: 'Transcendental runner existing in all dimensions',
     price: 1200,
@@ -97,4 +101,16 @@ export const AVAILABLE_SKINS: Skin[] = [
     glowColor: '#a855f7',
     unlocked: false,
   },
+  { id: 'street_spark', name: 'Street Spark', tagline: 'Your free streetwear original', price: 0, unlocked: true,
+    avatar: 'STREET', outfit: 'TEE', bottom: 'SHORTS', hair: 'QUIFF', skinTone: '#e8ac82', hairColor: '#332042', shoeColor: '#f8fafc',
+    primaryColor: '#20b8a4', secondaryColor: '#4f46a5', glowColor: '#ffb454', finish: 'MATTE' },
+  { id: 'night_shift', accessory: 'HEADPHONES', name: 'Night Shift', tagline: 'Earned at rank level 4', price: 0, requiredLevel: 4, rankOnly: true, unlocked: false,
+    avatar: 'STREET', outfit: 'HOODIE', bottom: 'JOGGERS', hair: 'CURLS', skinTone: '#805139', hairColor: '#251625', shoeColor: '#f8fafc',
+    primaryColor: '#5737a6', secondaryColor: '#151c3c', glowColor: '#55e6d3', finish: 'MATTE' },
+  { id: 'varsity_ace', accessory: 'STAR_BADGE', name: 'Varsity Ace', tagline: 'Earned at rank level 8', price: 0, requiredLevel: 8, rankOnly: true, unlocked: false,
+    avatar: 'STREET', outfit: 'JACKET', bottom: 'SHORTS', hair: 'CAP', skinTone: '#c48a64', hairColor: '#402520', shoeColor: '#f9d36b',
+    primaryColor: '#ca425c', secondaryColor: '#fff0d2', glowColor: '#ffcb55', finish: 'SATIN' },
+  { id: 'apex_runner', accessory: 'LAUREL', name: 'Apex Runner', tagline: 'Earned at rank level 30', price: 0, requiredLevel: 30, rankOnly: true, unlocked: false,
+    avatar: 'STREET', outfit: 'JACKET', bottom: 'JOGGERS', hair: 'QUIFF', skinTone: '#e8ac82', hairColor: '#e6e4f6', shoeColor: '#252142',
+    primaryColor: '#e5b845', secondaryColor: '#302253', glowColor: '#faf2b0', finish: 'CHROME' },
 ];

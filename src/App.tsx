@@ -2,7 +2,9 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  */
-
+import { CUSTOM_SKINS_KEY, MAX_CUSTOM_SKINS, normalizeCustomSkin, parseCustomSkins, unlockRankSkins, accessoryForRank } from './utils/skinStudio';
+import { LeaderboardModal } from './components/LeaderboardModal';
+import { finishRankedRun, type OnlinePlayer, type RankedTicket } from './utils/leaderboard';
 import { useRegisterSW } from 'virtual:pwa-register/react';
 import { Capacitor } from '@capacitor/core';
 import { App as NativeApp } from '@capacitor/app';
@@ -48,23 +50,17 @@ export default function App() {
     return readNumber('brainrot_total_coins');
   });
   const [skins, setSkins] = useState<Skin[]>(() => {
-    const saved = storage.getItem('brainrot_unlocked_skins');
-    if (saved) {
-      try {
-        const unlockedIds: string[] = JSON.parse(saved);
-        return AVAILABLE_SKINS.map((s) => ({
-          ...s,
-          unlocked: s.unlocked || (Array.isArray(unlockedIds) && unlockedIds.includes(s.id)),
-        }));
-      } catch {
-        return AVAILABLE_SKINS;
-      }
-    }
-    return AVAILABLE_SKINS;
+    let unlockedIds: unknown = [], savedRank: unknown = null;
+    try { unlockedIds = JSON.parse(storage.getItem('brainrot_unlocked_skins') || '[]'); } catch { /* recover this key independently */ }
+    try { savedRank = JSON.parse(storage.getItem('brainrot_progression_v3') || 'null'); } catch { /* keep the other saves */ }
+    return unlockRankSkins([
+      ...AVAILABLE_SKINS.map(s => ({ ...s, unlocked: s.unlocked || (Array.isArray(unlockedIds) && unlockedIds.includes(s.id)) })),
+      ...parseCustomSkins(storage.getItem(CUSTOM_SKINS_KEY)),
+    ], normalizeProgression(savedRank).level);
   });
 
   const [selectedSkinId, setSelectedSkinId] = useState<string>(() => {
-    return storage.getItem('brainrot_selected_skin') || 'cyber_glitch';
+    return storage.getItem('brainrot_selected_skin') || 'street_spark';
   });
 
   // Settings State
@@ -144,6 +140,13 @@ export default function App() {
     updateServiceWorker,
   } = useRegisterSW();
   const [eliminationCause, setEliminationCause] = useState('');
+  const [isLeaderboardOpen, setIsLeaderboardOpen] = useState(false);
+  const [rankingStatus, setRankingStatus] = useState('');
+  const [canRetryRanking, setCanRetryRanking] = useState(false);
+  const retryRankingRef = useRef<(() => void) | null>(null);
+  const rankedRunRef = useRef<{ ticket: RankedTicket; player: OnlinePlayer } | null>(null);
+  const rankingGeneration = useRef(0);
+  const [isRankedRun, setIsRankedRun] = useState(false);
   const [isSkinModalOpen, setIsSkinModalOpen] = useState<boolean>(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState<boolean>(false);
   const [isMissionsModalOpen, setIsMissionsModalOpen] = useState<boolean>(false);
@@ -202,6 +205,10 @@ export default function App() {
 
   // Check and grant milestone unlocks
   const checkMilestoneUnlock = useCallback((newLevel: number) => {
+    const ranked = unlockRankSkins(skinsRef.current, newLevel);
+    skinsRef.current = ranked;
+    setSkins(ranked);
+    storage.setItem('brainrot_unlocked_skins', JSON.stringify(ranked.filter(s => s.unlocked).map(s => s.id)));
     const milestone = LEVEL_MILESTONES.find((m) => m.level === newLevel);
     if (!milestone) return;
 
@@ -277,6 +284,26 @@ export default function App() {
       setTutorialCompleted(true);
     },
     onGameOver: (finalStats, cause) => {
+      const online = rankedRunRef.current;
+      rankedRunRef.current = null;
+      const generation = rankingGeneration.current;
+      if (online) {
+        const submit = () => {
+          setCanRetryRanking(false);
+          setRankingStatus('Submitting ranked distance…');
+          void finishRankedRun(online.ticket, online.player, finalStats.distance, finalStats.durationSeconds || 0)
+            .then(board => { if (generation === rankingGeneration.current) {
+              setCanRetryRanking(false);
+              setRankingStatus(board.me ? `Rank #${board.me.rank} · ${online.ticket.day} UTC · ${board.me.distance}m best` : 'Ranked run saved.');
+            } })
+            .catch(error => { if (generation === rankingGeneration.current) {
+              setCanRetryRanking(true);
+              setRankingStatus(`Not submitted: ${error.message} Local rewards are saved.`);
+            } });
+        };
+        retryRankingRef.current = submit;
+        submit();
+      }
       setEliminationCause(cause || 'COLLISION');
       setGameStatus('GAMEOVER');
 
@@ -422,7 +449,7 @@ export default function App() {
     if (!dialog) return;
     const previous = document.activeElement as HTMLElement | null;
     const controls = () => [
-      ...dialog.querySelectorAll<HTMLElement>('button:not(:disabled), [tabindex="0"]'),
+      ...dialog.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex="0"]'),
     ];
     controls()[0]?.focus();
     const trap = (event: KeyboardEvent) => {
@@ -432,6 +459,7 @@ export default function App() {
         if (isLevelUpModalOpen) setIsLevelUpModalOpen(false);
         else if (isDiagnosticsOpen) setIsDiagnosticsOpen(false);
         else if (isSettingsModalOpen) setIsSettingsModalOpen(false);
+        else if (isLeaderboardOpen) setIsLeaderboardOpen(false);
         else if (isSkinModalOpen) setIsSkinModalOpen(false);
         else if (isMissionsModalOpen) setIsMissionsModalOpen(false);
         else if (isProgressionModalOpen) setIsProgressionModalOpen(false);
@@ -465,6 +493,7 @@ export default function App() {
     };
   }, [
     gameStatus,
+    isLeaderboardOpen,
     isSkinModalOpen,
     isSettingsModalOpen,
     isMissionsModalOpen,
@@ -489,6 +518,10 @@ export default function App() {
       document.removeEventListener('visibilitychange', refreshDay);
     };
   }, []);
+
+  useEffect(() => {
+    engineRef.current?.setStudioOpen(isSkinModalOpen || isLeaderboardOpen);
+  }, [isSkinModalOpen, isLeaderboardOpen]);
 
   // Sync skin changes
   useEffect(() => {
@@ -551,6 +584,7 @@ export default function App() {
       if (
         e.repeat ||
         isSettingsModalOpen ||
+        isLeaderboardOpen ||
         isSkinModalOpen ||
         isMissionsModalOpen ||
         isProgressionModalOpen ||
@@ -606,7 +640,8 @@ export default function App() {
     [
       gameStatus,
       isSettingsModalOpen,
-      isSkinModalOpen,
+      isLeaderboardOpen,
+    isSkinModalOpen,
       isMissionsModalOpen,
       isProgressionModalOpen,
       isDiagnosticsOpen,
@@ -621,6 +656,12 @@ export default function App() {
   }, [handleKeyDown]);
 
   const startTutorial = (replay = false) => {
+    rankedRunRef.current = null;
+    rankingGeneration.current++;
+    setIsRankedRun(false);
+    setRankingStatus('');
+    setCanRetryRanking(false);
+    retryRankingRef.current = null;
     tutorialRef.current = true;
     tutorialReplayRef.current = replay;
     tutorialRewardRef.current = storage.getItem('brainrot_tutorial_rewarded_v1') !== 'true';
@@ -633,6 +674,12 @@ export default function App() {
   };
 
   const handleStartGame = () => {
+    rankedRunRef.current = null;
+    rankingGeneration.current++;
+    setIsRankedRun(false);
+    setRankingStatus('');
+    setCanRetryRanking(false);
+    retryRankingRef.current = null;
     if (storage.getItem('brainrot_tutorial_seen_v1') !== 'true') {
       startTutorial();
       return;
@@ -646,7 +693,31 @@ export default function App() {
     engineRef.current?.reset(currentSelectedSkin, false);
   };
 
+  const handleStartRanked = (ticket: RankedTicket, player: OnlinePlayer) => {
+    rankedRunRef.current = { ticket, player };
+    rankingGeneration.current++;
+    setRankingStatus('');
+    setCanRetryRanking(false);
+    retryRankingRef.current = null;
+    setIsRankedRun(true);
+    setIsLeaderboardOpen(false);
+    tutorialRef.current = false;
+    setTutorial(prev => ({ ...prev, active: false }));
+    runDayRef.current = ticket.day;
+    setDailyChallengeBest(readNumber(`brainrot_daily_best_${ticket.day}`));
+    setIsDailyChallengeActive(true);
+    setIsNewHigh(false);
+    setGameStatus('PLAYING');
+    engineRef.current?.reset(currentSelectedSkin, true, ticket.day);
+  };
+
   const handleStartDailyChallenge = () => {
+    rankedRunRef.current = null;
+    rankingGeneration.current++;
+    setIsRankedRun(false);
+    setRankingStatus('');
+    setCanRetryRanking(false);
+    retryRankingRef.current = null;
     tutorialRef.current = false;
     setTutorial((prev) => ({ ...prev, active: false }));
     runDayRef.current = getUTCDayString();
@@ -658,6 +729,12 @@ export default function App() {
   };
 
   const handleRestartGame = () => {
+    rankedRunRef.current = null;
+    rankingGeneration.current++;
+    setIsRankedRun(false);
+    setRankingStatus('');
+    setCanRetryRanking(false);
+    retryRankingRef.current = null;
     if (tutorialRef.current) {
       startTutorial(tutorialReplayRef.current);
       return;
@@ -679,6 +756,12 @@ export default function App() {
   };
 
   const handleQuitToMenu = () => {
+    rankedRunRef.current = null;
+    rankingGeneration.current++;
+    setIsRankedRun(false);
+    setRankingStatus('');
+    setCanRetryRanking(false);
+    retryRankingRef.current = null;
     tutorialRef.current = false;
     setTutorial((prev) => ({ ...prev, active: false }));
     updateMissions((missions) => missions);
@@ -719,11 +802,36 @@ export default function App() {
     storage.setItem('brainrot_selected_skin', skin.id);
   };
 
+  const handleSaveCustomSkin = (draft: Skin): boolean => {
+    const skin = normalizeCustomSkin(draft);
+    if (!skin || accessoryForRank(skin.accessory, progressionRef.current.level) !== skin.accessory) return false;
+    const existing = skinsRef.current.find(s => s.id === skin.id);
+    if (!existing && skinsRef.current.filter(s => s.custom).length >= MAX_CUSTOM_SKINS) return false;
+    const updated = existing
+      ? skinsRef.current.map(s => s.id === skin.id ? skin : s)
+      : [...skinsRef.current, skin];
+    skinsRef.current = updated;
+    setSkins(updated);
+    storage.setItem(CUSTOM_SKINS_KEY, JSON.stringify(updated.filter(s => s.custom)));
+    handleSelectSkin(skin);
+    return true;
+  };
+
+  const handleDeleteCustomSkin = (id: string) => {
+    if (!skinsRef.current.some(s => s.id === id && s.custom)) return;
+    const updated = skinsRef.current.filter(s => s.id !== id);
+    skinsRef.current = updated;
+    setSkins(updated);
+    storage.setItem(CUSTOM_SKINS_KEY, JSON.stringify(updated.filter(s => s.custom)));
+    if (selectedSkinId === id) handleSelectSkin(updated[0]);
+  };
+
   const handleUnlockSkin = (skinId: string) => {
     const skinToUnlock = skinsRef.current.find((s) => s.id === skinId);
     if (
       !skinToUnlock ||
       skinToUnlock.unlocked ||
+      skinToUnlock.rankOnly ||
       readNumber('brainrot_total_coins') < skinToUnlock.price
     )
       return;
@@ -805,6 +913,7 @@ export default function App() {
           onStartTutorial={() => startTutorial(tutorialCompleted)}
           onOpenDiagnostics={() => setIsDiagnosticsOpen(true)}
           onStart={handleStartGame}
+          onOpenLeaderboard={() => setIsLeaderboardOpen(true)}
           onStartDailyChallenge={handleStartDailyChallenge}
           onOpenSkins={() => setIsSkinModalOpen(true)}
           onOpenMissions={() => setIsMissionsModalOpen(true)}
@@ -815,6 +924,8 @@ export default function App() {
 
       {gameStatus === 'PLAYING' && (
         <GameHUD
+          ranked={isRankedRun}
+          showChallenge={!tutorial.active}
           stats={{ ...stats, highScore, totalCoins }}
           powerUps={powerUps}
           chaos={chaos}
@@ -838,6 +949,8 @@ export default function App() {
 
       {gameStatus === 'GAMEOVER' && (
         <GameOverModal
+          rankingStatus={rankingStatus}
+          onRetryRanking={canRetryRanking ? () => retryRankingRef.current?.() : undefined}
           stats={{ ...stats, highScore }}
           isNewHigh={isNewHigh}
           selectedSkin={currentSelectedSkin}
@@ -894,6 +1007,7 @@ export default function App() {
         </p>
       )}
       {/* Modals */}
+      {isLeaderboardOpen && <LeaderboardModal onClose={() => setIsLeaderboardOpen(false)} onStart={handleStartRanked} />}
       {isSkinModalOpen && (
         <SkinModal
           skins={skins}
@@ -901,6 +1015,8 @@ export default function App() {
           totalCoins={totalCoins}
           progression={progression}
           onSelectSkin={handleSelectSkin}
+          onSaveCustomSkin={handleSaveCustomSkin}
+          onDeleteCustomSkin={handleDeleteCustomSkin}
           onUnlockSkin={handleUnlockSkin}
           onClose={() => setIsSkinModalOpen(false)}
         />

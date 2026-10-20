@@ -1,3 +1,5 @@
+import { challengeAtDistance, makeChallengePattern, MAX_RUN_SPEED, COMPOUND_GATE_SECONDS } from './challenges';
+import { RunnerCamera } from './RunnerCamera';
 import { hitsObstacle } from '../utils/mechanics';
 import { storage } from '../utils/storage';
 import * as THREE from 'three';
@@ -77,6 +79,12 @@ export const STAGES: StageInfo[] = [
 ];
 
 export class GameEngine {
+  private studioOpen = false;
+  public setStudioOpen(open: boolean) { this.studioOpen = open; }
+
+  private readonly runnerCamera = new RunnerCamera();
+  private readonly reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+
   public scene: THREE.Scene;
   public camera: THREE.PerspectiveCamera;
   public renderer: THREE.WebGLRenderer;
@@ -237,6 +245,8 @@ export class GameEngine {
       secondary: parseInt(initialSkin.secondaryColor.replace('#', '0x')),
       glow: parseInt(initialSkin.glowColor.replace('#', '0x')),
       accent: 0xffffff,
+      finish: initialSkin.finish,
+      appearance: initialSkin,
     });
 
     this.character.setShadowsEnabled(this.renderer.shadowMap.enabled);
@@ -371,12 +381,8 @@ export class GameEngine {
   private spawnNextEncounter() {
     if (this.isTutorial || this.boss.state.active) return;
 
-    // Generous spacing early in run (< 200m) to give beginners plenty of reaction time
-    const spacing =
-      this.distanceTraveled < 200
-        ? Math.max(34, this.currentSpeed * 1.35)
-        : Math.max(28, this.currentSpeed * 1.15);
-
+    const profile = challengeAtDistance(-this.spawnCursorZ);
+    const spacing = profile.level === 1 ? Math.max(34, profile.speed * 1.35) : Math.max(30, profile.speed * 1.25);
     this.spawnCursorZ -= spacing;
     const z = this.spawnCursorZ;
 
@@ -399,6 +405,21 @@ export class GameEngine {
       } else {
         this.collectibles.spawnCoinRow(lane, z + 2, 5, 1.8);
       }
+      return;
+    }
+
+    if (profile.level > 1) {
+      const pool = profile.patterns;
+      const pattern = pool[Math.floor(this.getRandom() * pool.length)];
+      const patternSpeed = challengeAtDistance(-z + MAX_RUN_SPEED * COMPOUND_GATE_SECONDS * 2).speed;
+      const rows = makeChallengePattern(pattern, patternSpeed, () => this.getRandom());
+      for (const row of rows) {
+        for (const hazard of row.hazards) this.obstacles.spawnObstacle(hazard.type, hazard.lane, z - row.offset, hazard.type === 'MOVING_DRONE');
+        if (row.safeLane !== undefined) this.collectibles.spawnCoinRow(row.safeLane, z - row.offset + 2, 4, 1.6);
+      }
+      const recovery = pattern === 'JUMP_GATE' || pattern === 'SLIDE_GATE' || pattern === 'RHYTHM' || pattern === 'MIXED_GATE'
+        ? patternSpeed * 1.45 * 1.35 * COMPOUND_GATE_SECONDS : 0;
+      this.spawnCursorZ -= rows[rows.length - 1].offset + recovery;
       return;
     }
 
@@ -648,12 +669,12 @@ export class GameEngine {
       lastTime = time;
       const dt = Math.min(rawDt, 0.05);
 
-      if (document.hidden) return;
+      if (document.hidden || this.studioOpen) return;
       this.globalTime += dt;
       this.character.animate(dt, 'IDLE', 1.0, 0, this.globalTime);
 
-      const floatY = 1.9 + Math.sin(this.globalTime * 1.5) * 0.12;
-      const floatX = Math.sin(this.globalTime * 0.8) * 0.45;
+      const floatY = 1.9 + (this.reducedMotion.matches ? 0 : Math.sin(this.globalTime * 1.5) * 0.04);
+      const floatX = this.reducedMotion.matches ? 0 : Math.sin(this.globalTime * 0.8) * 0.12;
       this.camera.position.set(floatX, floatY, this.playerZ + 3.8);
       this.camera.lookAt(0, 1.15, this.playerZ);
 
@@ -733,6 +754,8 @@ export class GameEngine {
       secondary: parseInt(skin.secondaryColor.replace('#', '0x')),
       glow: parseInt(skin.glowColor.replace('#', '0x')),
       accent: 0xffffff,
+      finish: skin.finish,
+      appearance: skin,
     });
   }
 
@@ -792,8 +815,8 @@ export class GameEngine {
     if (this.chaosState.active && this.chaosState.type === 'TURBO_SPEED') {
       speedMult *= 1.35;
     }
-    const baseSpeed = this.isTutorial ? 14.0 : 16.0;
-    const speedRamp = this.isTutorial ? 0 : Math.min(this.distanceTraveled * 0.007, 8.0);
+    const baseSpeed = this.isTutorial ? 14.0 : challengeAtDistance(this.distanceTraveled).speed;
+    const speedRamp = 0;
     this.currentSpeed = (baseSpeed + speedRamp) * speedMult;
 
     // 2. Advance player forward
@@ -829,7 +852,7 @@ export class GameEngine {
 
       // Trigger Algorithm Boss battle encounter at distance milestones
       if (!this.boss.state.active && this.distanceTraveled >= this.nextBossTriggerDistance) {
-        this.nextBossTriggerDistance += 600;
+        this.nextBossTriggerDistance += Math.max(380, 600 - (challengeAtDistance(this.distanceTraveled).level - 1) * 20);
         this.obstacles.clear(); // Boss safe lanes must not overlap old normal encounters.
         this.collectibles.clear();
         this.spawnCursorZ = this.playerZ - 60;
@@ -931,6 +954,9 @@ export class GameEngine {
         () => {
           // Boss Defeated!
           this.bossDefeatedCount++;
+          // High-speed bosses can travel farther than their nominal interval.
+          // Always reserve a normal-play recovery section after a victory.
+          this.nextBossTriggerDistance = this.distanceTraveled + Math.max(320, 600 - (challengeAtDistance(this.distanceTraveled).level - 1) * 25);
           this.spawnCursorZ = this.playerZ - 60;
           this.chaosTimer = 19;
           this.coinsCollected += 150;
@@ -973,27 +999,15 @@ export class GameEngine {
       this.checkCollisions();
     }
 
-    // 10. Mobile Camera positioning
-    let shakeX = 0;
-    let shakeY = 0;
-    if (this.cameraShake > 0) {
-      shakeX = (Math.random() - 0.5) * this.cameraShake;
-      shakeY = (Math.random() - 0.5) * this.cameraShake;
-      this.cameraShake = THREE.MathUtils.damp(this.cameraShake, 0, 7, dt);
-    }
-
-    const camTargetX = this.playerX * 0.4 + shakeX;
-    const camTargetY = this.playerY * 0.35 + (this.isSliding ? 2.5 : 2.95) + shakeY;
+    // Stable horizon and limited lane follow leave the approaching lanes readable.
     const isBoosting =
       this.activePowerUps.has('SPEED_BOOST') ||
       (this.chaosState.active && this.chaosState.type === 'TURBO_SPEED');
-    const camTargetZ = this.playerZ + (isBoosting ? 5.6 : 4.9);
-
-    this.camera.position.x = THREE.MathUtils.damp(this.camera.position.x, camTargetX, 11, dt);
-    this.camera.position.y = THREE.MathUtils.damp(this.camera.position.y, camTargetY, 11, dt);
-    this.camera.position.z = THREE.MathUtils.damp(this.camera.position.z, camTargetZ, 12, dt);
-
-    this.camera.lookAt(this.playerX * 0.2, this.playerY * 0.22 + 1.25, this.playerZ - 10.0);
+    const rig = this.runnerCamera;
+    rig.update(dt, this.playerX, isBoosting, this.globalTime, !this.reducedMotion.matches, this.cameraShake);
+    this.cameraShake = THREE.MathUtils.damp(this.cameraShake, 0, 7, dt);
+    this.camera.position.set(rig.x, rig.y, this.playerZ + rig.offsetZ);
+    this.camera.lookAt(rig.lookX, rig.lookY, this.playerZ - rig.lookAhead);
 
     // 11. Dispatch stats to React UI
     const score = Math.floor(this.distanceTraveled) + this.coinsCollected * 10;
@@ -1261,7 +1275,9 @@ export class GameEngine {
     const width = this.container.clientWidth || window.innerWidth;
     const height = this.container.clientHeight || window.innerHeight;
     this.updateCameraFOV(width, height);
-    this.camera.position.set(0, 2.95, 4.9);
+    this.runnerCamera.reset();
+    this.camera.position.set(0, this.runnerCamera.y, this.runnerCamera.offsetZ);
+    this.camera.lookAt(0, this.runnerCamera.lookY, -this.runnerCamera.lookAhead);
 
     this.resetRuntime();
     this.prepareTutorialStep();
@@ -1338,15 +1354,15 @@ export class GameEngine {
     this.callbacks.onChaosUpdate({ ...this.chaosState });
   }
 
-  public reset(initialSkin: Skin, isDailyChallenge: boolean = false) {
+  public reset(initialSkin: Skin, isDailyChallenge: boolean = false, seedDay?: string) {
     this.resetRuntime();
     this.isTutorial = false;
     this.tutorialStep = 0;
     this.isDailyChallenge = isDailyChallenge;
     if (isDailyChallenge) {
-      this.prng = new SeededPRNG(getDailySeed());
-      const obstaclePRNG = new SeededPRNG(getDailySeed() ^ 0x1234);
-      const bossPRNG = new SeededPRNG(getDailySeed() ^ 0x5678);
+      this.prng = new SeededPRNG(getDailySeed(seedDay));
+      const obstaclePRNG = new SeededPRNG(getDailySeed(seedDay) ^ 0x1234);
+      const bossPRNG = new SeededPRNG(getDailySeed(seedDay) ^ 0x5678);
       this.obstacleRandom = () => obstaclePRNG.next();
       this.bossRandom = () => bossPRNG.next();
     } else {
@@ -1398,7 +1414,9 @@ export class GameEngine {
     const width = this.container.clientWidth || window.innerWidth;
     const height = this.container.clientHeight || window.innerHeight;
     this.updateCameraFOV(width, height);
-    this.camera.position.set(0, 2.95, 4.9);
+    this.runnerCamera.reset();
+    this.camera.position.set(0, this.runnerCamera.y, this.runnerCamera.offsetZ);
+    this.camera.lookAt(0, this.runnerCamera.lookY, -this.runnerCamera.lookAhead);
 
     this.populateInitialTrack();
     this.start();

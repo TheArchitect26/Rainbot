@@ -5,6 +5,8 @@ import { PlayerStats, Skin } from '../types/game';
 import { PlayerProgression, XPGainBreakdown } from '../types/progression';
 
 interface GameOverModalProps {
+  rankingStatus?: string;
+  onRetryRanking?: () => void;
   stats: PlayerStats;
   isNewHigh: boolean;
   selectedSkin: Skin;
@@ -19,6 +21,8 @@ interface GameOverModalProps {
 
 export const GameOverModal: React.FC<GameOverModalProps> = ({
   stats,
+  rankingStatus,
+  onRetryRanking,
   isNewHigh,
   selectedSkin: _selectedSkin,
   dailyChallengeBest = 0,
@@ -79,6 +83,8 @@ export const GameOverModal: React.FC<GameOverModalProps> = ({
           </div>
         ) : null}
 
+        {rankingStatus && <p role="status" className="text-sm text-cyan-200 text-center my-2">{rankingStatus}</p>}
+        {onRetryRanking && <button onClick={onRetryRanking} className="min-h-11 px-3 my-2 border border-cyan-300 rounded-xl text-cyan-200">Retry ranked submission</button>}
         {/* Banner */}
         <div className="text-red-500 font-arcade font-black text-2xl sm:text-3xl tracking-wider uppercase drop-shadow-md">
           ALGORITHM CAUGHT YOU!

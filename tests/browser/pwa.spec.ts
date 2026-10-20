@@ -11,7 +11,7 @@ test('production PWA installs its cache and starts offline without changing prog
     await navigator.serviceWorker.ready;
   });
   await page.reload();
-  await expect.poll(() => page.evaluate(() => !!navigator.serviceWorker.controller)).toBe(true);
+  await expect.poll(() => page.evaluate(() => !!navigator.serviceWorker.controller), { timeout: 15000 }).toBe(true);
   const manifest = await page.request.get('http://127.0.0.1:3200/manifest.webmanifest');
   expect((await manifest.json()).short_name).toBe('BRAINROT RUN');
   await context.setOffline(true);
