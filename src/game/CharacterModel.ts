@@ -1,8 +1,10 @@
+import { StreetAvatar } from './StreetAvatar';
 import { finishMaterial } from '../utils/skinStudio';
 import type { Skin } from '../types/game';
 import * as THREE from 'three';
 
 export interface SkinColors {
+  appearance?: Skin;
   finish?: Skin['finish'];
   primary: number;
   secondary: number;
@@ -51,6 +53,10 @@ export class CharacterModel {
   private runCycleTime: number = 0;
   private squashFactor: number = 1.0;
   private materialsToUpdate: THREE.MeshStandardMaterial[] = [];
+  private street: StreetAvatar;
+  private streetNodes: THREE.Object3D[] = [];
+  private cyberNodes: THREE.Object3D[] = [];
+  private isStreet = false;
   private glowColorHex: string = '#22d3ee';
 
   constructor(colors: SkinColors) {
@@ -269,6 +275,19 @@ export class CharacterModel {
 
     this.group.add(this.leftLegGroup, this.rightLegGroup);
 
+    this.cyberNodes = [
+      ...this.torsoGroup.children.filter(n => ![this.headGroup, this.leftArmGroup, this.rightArmGroup].includes(n as THREE.Group)),
+      ...this.headGroup.children.filter(n => n !== this.dizzyStarsGroup),
+      ...this.leftArmGroup.children, ...this.rightArmGroup.children,
+      ...this.leftLegGroup.children, ...this.rightLegGroup.children,
+    ];
+    const originalNodes = new Set<THREE.Object3D>();
+    this.group.traverse(n => originalNodes.add(n));
+    this.street = new StreetAvatar({ torso: this.torsoGroup, head: this.headGroup,
+      arms: [this.leftArmGroup, this.rightArmGroup], legs: [this.leftLegGroup, this.rightLegGroup] }, primaryMat, secondaryMat, glowMat);
+    this.group.traverse(n => { if (!originalNodes.has(n) && originalNodes.has(n.parent!)) this.streetNodes.push(n); });
+    this.setAppearance(colors.appearance);
+
     // 10. Ground Contact Shadow disk
     const shadowGeo = new THREE.CircleGeometry(0.72, 24);
     shadowGeo.rotateX(-Math.PI / 2);
@@ -415,7 +434,15 @@ export class CharacterModel {
     }
   }
 
+  private setAppearance(skin?: Skin) {
+    this.isStreet = skin?.avatar === 'STREET';
+    for (const node of this.cyberNodes) node.visible = !this.isStreet;
+    for (const node of this.streetNodes) node.visible = this.isStreet;
+    this.street.update(skin, this.isStreet);
+  }
+
   public updateSkin(colors: SkinColors) {
+    this.setAppearance(colors.appearance);
     if (this.materialsToUpdate[0]) {
       this.materialsToUpdate[0].color.setHex(colors.primary);
       Object.assign(this.materialsToUpdate[0], finishMaterial(colors.finish));
@@ -457,6 +484,8 @@ export class CharacterModel {
         this.blinkTimer = 0;
       }
     }
+
+    this.street.eyes.scale.y = this.isBlinking ? .12 : 1;
 
     if (this.currentExpression !== status || wasBlinking !== this.isBlinking) {
       this.currentExpression = status;

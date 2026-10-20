@@ -4,6 +4,22 @@ export const CUSTOM_SKINS_KEY = 'brainrot_custom_skins_v1';
 export const MAX_CUSTOM_SKINS = 8;
 export const SKIN_FINISHES = ['SATIN', 'CHROME', 'MATTE'] as const;
 export type SkinFinish = (typeof SKIN_FINISHES)[number];
+export const ACCESSORY_RANKS = {
+  NONE: 1,
+  HEADPHONES: 4,
+  STAR_BADGE: 8,
+  LAUREL: 30,
+} as const;
+export function accessoryForRank(
+  value: unknown,
+  rank: number,
+): NonNullable<Skin['accessory']> {
+  return typeof value === 'string' &&
+    Object.hasOwn(ACCESSORY_RANKS, value) &&
+    rank >= ACCESSORY_RANKS[value as keyof typeof ACCESSORY_RANKS]
+    ? (value as NonNullable<Skin['accessory']>)
+    : 'NONE';
+}
 const color = /^#[\da-f]{6}$/i;
 
 /** Treat local saves as untrusted; never accept prices, unlocks or built-in IDs. */
@@ -30,6 +46,25 @@ export function normalizeCustomSkin(value: unknown): Skin | null {
     glowColor: v.glowColor as string,
     unlocked: true,
     custom: true,
+    accessory: accessoryForRank(v.accessory, 10000),
+    avatar: v.avatar === 'STREET' ? 'STREET' : 'CYBER',
+    outfit: ['TEE', 'HOODIE', 'JACKET'].includes(v.outfit as string)
+      ? (v.outfit as Skin['outfit'])
+      : 'TEE',
+    bottom: v.bottom === 'JOGGERS' ? 'JOGGERS' : 'SHORTS',
+    hair: ['QUIFF', 'CURLS', 'CAP'].includes(v.hair as string)
+      ? (v.hair as Skin['hair'])
+      : 'QUIFF',
+    ...Object.fromEntries(
+      ['skinTone', 'hairColor', 'shoeColor'].map((key) => [
+        key,
+        typeof v[key] === 'string' && color.test(v[key] as string)
+          ? v[key]
+          : { skinTone: '#e8ac82', hairColor: '#332042', shoeColor: '#f8fafc' }[
+              key
+            ],
+      ]),
+    ),
     finish: SKIN_FINISHES.includes(v.finish as SkinFinish)
       ? (v.finish as SkinFinish)
       : 'SATIN',
@@ -61,4 +96,12 @@ export function finishMaterial(finish: Skin['finish']) {
     default:
       return { roughness: 0.38, metalness: 0.5 };
   }
+}
+
+export function unlockRankSkins(skins: Skin[], level: number): Skin[] {
+  return skins.map((s) => ({
+    ...s,
+    ...(s.custom ? { accessory: accessoryForRank(s.accessory, level) } : {}),
+    unlocked: s.unlocked || (!!s.requiredLevel && s.requiredLevel <= level),
+  }));
 }

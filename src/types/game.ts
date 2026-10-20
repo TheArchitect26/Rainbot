@@ -99,6 +99,15 @@ export interface PlayerStats {
 }
 
 export interface Skin {
+  rankOnly?: boolean;
+  accessory?: 'NONE' | 'HEADPHONES' | 'STAR_BADGE' | 'LAUREL';
+  avatar?: 'CYBER' | 'STREET';
+  outfit?: 'TEE' | 'HOODIE' | 'JACKET';
+  bottom?: 'SHORTS' | 'JOGGERS';
+  hair?: 'QUIFF' | 'CURLS' | 'CAP';
+  skinTone?: string;
+  hairColor?: string;
+  shoeColor?: string;
   custom?: boolean;
   finish?: 'SATIN' | 'CHROME' | 'MATTE';
   id: string;

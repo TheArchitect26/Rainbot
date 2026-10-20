@@ -65,6 +65,9 @@ export function getXPRequiredForLevel(level: number): number {
 }
 
 export const LEVEL_MILESTONES: LevelMilestone[] = [
+  { level: 4, title: 'Night Shift', rewardType: 'SKIN', rewardValue: 'night_shift', rewardLabel: 'Night Shift Hoodie', unlocked: false },
+  { level: 8, title: 'Varsity Ace', rewardType: 'SKIN', rewardValue: 'varsity_ace', rewardLabel: 'Varsity Ace Outfit', unlocked: false },
+  { level: 30, title: 'Apex Runner', rewardType: 'SKIN', rewardValue: 'apex_runner', rewardLabel: 'Apex Runner Outfit', unlocked: false },
   { level: 2, title: 'First Steps', rewardType: 'COINS', rewardValue: 100, rewardLabel: '100 Coins', unlocked: false },
   { level: 3, title: 'Cyber Speed', rewardType: 'COINS', rewardValue: 150, rewardLabel: '150 Coins', unlocked: false },
   { level: 5, title: 'Glitch Runner', rewardType: 'SKIN', rewardValue: 'vapor_sunset', rewardLabel: 'Vapor Wave Skin', unlocked: false },
@@ -74,3 +77,5 @@ export const LEVEL_MILESTONES: LevelMilestone[] = [
   { level: 15, title: 'Capybara Chill', rewardType: 'SKIN', rewardValue: 'capy_vip', rewardLabel: 'Capybara King Skin', unlocked: false },
   { level: 20, title: 'Holographic Legend', rewardType: 'SKIN', rewardValue: 'quantum_hologram', rewardLabel: 'Quantum Hologram Skin', unlocked: false },
 ];
+
+LEVEL_MILESTONES.sort((a, b) => a.level - b.level);

@@ -2,7 +2,7 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  */
-import { CUSTOM_SKINS_KEY, MAX_CUSTOM_SKINS, normalizeCustomSkin, parseCustomSkins } from './utils/skinStudio';
+import { CUSTOM_SKINS_KEY, MAX_CUSTOM_SKINS, normalizeCustomSkin, parseCustomSkins, unlockRankSkins, accessoryForRank } from './utils/skinStudio';
 import { useRegisterSW } from 'virtual:pwa-register/react';
 import { Capacitor } from '@capacitor/core';
 import { App as NativeApp } from '@capacitor/app';
@@ -48,23 +48,17 @@ export default function App() {
     return readNumber('brainrot_total_coins');
   });
   const [skins, setSkins] = useState<Skin[]>(() => {
-    const saved = storage.getItem('brainrot_unlocked_skins');
-    if (saved) {
-      try {
-        const unlockedIds: string[] = JSON.parse(saved);
-        return [...AVAILABLE_SKINS.map((s) => ({
-          ...s,
-          unlocked: s.unlocked || (Array.isArray(unlockedIds) && unlockedIds.includes(s.id)),
-        })), ...parseCustomSkins(storage.getItem(CUSTOM_SKINS_KEY))];
-      } catch {
-        return [...AVAILABLE_SKINS, ...parseCustomSkins(storage.getItem(CUSTOM_SKINS_KEY))];
-      }
-    }
-    return [...AVAILABLE_SKINS, ...parseCustomSkins(storage.getItem(CUSTOM_SKINS_KEY))];
+    let unlockedIds: unknown = [], savedRank: unknown = null;
+    try { unlockedIds = JSON.parse(storage.getItem('brainrot_unlocked_skins') || '[]'); } catch { /* recover this key independently */ }
+    try { savedRank = JSON.parse(storage.getItem('brainrot_progression_v3') || 'null'); } catch { /* keep the other saves */ }
+    return unlockRankSkins([
+      ...AVAILABLE_SKINS.map(s => ({ ...s, unlocked: s.unlocked || (Array.isArray(unlockedIds) && unlockedIds.includes(s.id)) })),
+      ...parseCustomSkins(storage.getItem(CUSTOM_SKINS_KEY)),
+    ], normalizeProgression(savedRank).level);
   });
 
   const [selectedSkinId, setSelectedSkinId] = useState<string>(() => {
-    return storage.getItem('brainrot_selected_skin') || 'cyber_glitch';
+    return storage.getItem('brainrot_selected_skin') || 'street_spark';
   });
 
   // Settings State
@@ -202,6 +196,10 @@ export default function App() {
 
   // Check and grant milestone unlocks
   const checkMilestoneUnlock = useCallback((newLevel: number) => {
+    const ranked = unlockRankSkins(skinsRef.current, newLevel);
+    skinsRef.current = ranked;
+    setSkins(ranked);
+    storage.setItem('brainrot_unlocked_skins', JSON.stringify(ranked.filter(s => s.unlocked).map(s => s.id)));
     const milestone = LEVEL_MILESTONES.find((m) => m.level === newLevel);
     if (!milestone) return;
 
@@ -725,7 +723,7 @@ export default function App() {
 
   const handleSaveCustomSkin = (draft: Skin): boolean => {
     const skin = normalizeCustomSkin(draft);
-    if (!skin) return false;
+    if (!skin || accessoryForRank(skin.accessory, progressionRef.current.level) !== skin.accessory) return false;
     const existing = skinsRef.current.find(s => s.id === skin.id);
     if (!existing && skinsRef.current.filter(s => s.custom).length >= MAX_CUSTOM_SKINS) return false;
     const updated = existing
@@ -752,6 +750,7 @@ export default function App() {
     if (
       !skinToUnlock ||
       skinToUnlock.unlocked ||
+      skinToUnlock.rankOnly ||
       readNumber('brainrot_total_coins') < skinToUnlock.price
     )
       return;

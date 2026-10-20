@@ -9,6 +9,7 @@ const colors = (skin: Skin) => ({
   glow: Number.parseInt(skin.glowColor.slice(1), 16),
   accent: 0xffffff,
   finish: skin.finish,
+  appearance: skin,
 });
 
 /** One small, capped preview context, shared across palette changes and disposed on close. */
@@ -31,7 +32,7 @@ export function SkinPreview({ skin }: { skin: Skin }) {
     host.appendChild(renderer.domElement);
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(35, 240 / 180, 0.1, 20);
-    camera.position.set(2.6, 2.2, 5.6);
+    camera.position.set(2, 1.9, 4.6);
     camera.lookAt(0, 1.2, 0);
     scene.add(new THREE.HemisphereLight(0xffffff, 0x334155, 2.5));
     const key = new THREE.DirectionalLight(0xffffff, 3);

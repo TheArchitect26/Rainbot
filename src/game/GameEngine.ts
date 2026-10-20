@@ -245,6 +245,7 @@ export class GameEngine {
       glow: parseInt(initialSkin.glowColor.replace('#', '0x')),
       accent: 0xffffff,
       finish: initialSkin.finish,
+      appearance: initialSkin,
     });
 
     this.character.setShadowsEnabled(this.renderer.shadowMap.enabled);
@@ -742,6 +743,7 @@ export class GameEngine {
       glow: parseInt(skin.glowColor.replace('#', '0x')),
       accent: 0xffffff,
       finish: skin.finish,
+      appearance: skin,
     });
   }
 
