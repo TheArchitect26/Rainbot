@@ -1,9 +1,27 @@
+import { challengeAtDistance, MAX_CHALLENGE_LEVEL } from '../game/challenges';
 import React, { useEffect, useState } from 'react';
-import { ActivePowerUp, ChaosState, PlayerStats, StageInfo } from '../types/game';
+import {
+  ActivePowerUp,
+  ChaosState,
+  PlayerStats,
+  StageInfo,
+} from '../types/game';
 import { BossState } from '../types/progression';
-import { Shield, Magnet, Zap, Coins, Pause, ArrowLeft, ArrowRight, ArrowUp, ArrowDown } from 'lucide-react';
+import {
+  Shield,
+  Magnet,
+  Zap,
+  Coins,
+  Pause,
+  ArrowLeft,
+  ArrowRight,
+  ArrowUp,
+  ArrowDown,
+} from 'lucide-react';
 
 interface GameHUDProps {
+  ranked?: boolean;
+  showChallenge?: boolean;
   stats: PlayerStats;
   powerUps: ActivePowerUp[];
   chaos: ChaosState;
@@ -16,6 +34,8 @@ interface GameHUDProps {
 
 export const GameHUD: React.FC<GameHUDProps> = ({
   stats,
+  ranked = false,
+  showChallenge = true,
   powerUps,
   chaos,
   boss,
@@ -24,6 +44,7 @@ export const GameHUD: React.FC<GameHUDProps> = ({
   onPause,
   onControlInput,
 }) => {
+  const challenge = challengeAtDistance(stats.distance);
   const [stageBanner, setStageBanner] = useState<string | null>(null);
 
   useEffect(() => {
@@ -38,6 +59,17 @@ export const GameHUD: React.FC<GameHUDProps> = ({
     <div className="absolute inset-0 pointer-events-none select-none flex flex-col justify-between p-3 sm:p-4 pt-safe pb-safe pl-safe pr-safe z-10">
       {/* Top Header Cluster with Max Legibility */}
       <div className="flex flex-col items-center w-full">
+        {showChallenge && (
+          <div className="text-center bg-black/90 rounded-lg px-2 py-1 mb-1 max-w-full text-[10px] text-cyan-200">
+            <span className="font-bold">
+              {ranked ? 'RANKED · ' : ''}CHALLENGE {challenge.level}/
+              {MAX_CHALLENGE_LEVEL} · {challenge.name}
+            </span>
+            <span className="block text-neutral-300 [@media(max-height:500px)]:hidden">
+              {challenge.skill}
+            </span>
+          </div>
+        )}
         {/* Main top bar */}
         <div className="flex items-center justify-between w-full">
           {/* Top-Left: Large Pause button */}
@@ -55,7 +87,10 @@ export const GameHUD: React.FC<GameHUDProps> = ({
             {currentStage && (
               <span
                 className="text-[10px] font-arcade font-black tracking-widest uppercase px-2.5 py-0.5 rounded-full bg-black/85 border mb-0.5"
-                style={{ color: currentStage.themeColor, borderColor: `${currentStage.themeColor}88` }}
+                style={{
+                  color: currentStage.themeColor,
+                  borderColor: `${currentStage.themeColor}88`,
+                }}
               >
                 {currentStage.name}
               </span>
@@ -65,7 +100,9 @@ export const GameHUD: React.FC<GameHUDProps> = ({
               <span className="font-arcade text-3xl sm:text-4xl font-black text-white tabular-nums tracking-wider text-stroke-thick glow-cyan">
                 {stats.distance}
               </span>
-              <span className="text-sm font-black text-cyan-400 uppercase tracking-widest font-arcade">m</span>
+              <span className="text-sm font-black text-cyan-400 uppercase tracking-widest font-arcade">
+                m
+              </span>
             </div>
 
             <div className="mt-0.5 text-xs font-mono text-yellow-300 font-black tracking-wider bg-black/70 px-2 py-0.2 rounded-md">
@@ -128,7 +165,11 @@ export const GameHUD: React.FC<GameHUDProps> = ({
                 >
                   <div className="flex items-center gap-1.5">
                     {icon}
-                    <span className={`text-[11px] font-black uppercase font-arcade ${textColor}`}>{label}</span>
+                    <span
+                      className={`text-[11px] font-black uppercase font-arcade ${textColor}`}
+                    >
+                      {label}
+                    </span>
                     <span className="text-[11px] font-mono text-white font-black tabular-nums">
                       {Math.ceil(pu.timeLeft)}s
                     </span>
@@ -152,7 +193,8 @@ export const GameHUD: React.FC<GameHUDProps> = ({
         {chaos.warningTimeLeft > 0 && (
           <div className="animate-pulse bg-red-600 border-2 border-white text-white px-4 py-1.5 rounded-2xl shadow-2xl text-center mt-2 max-w-[300px]">
             <span className="text-xs font-arcade font-black tracking-widest uppercase flex items-center justify-center gap-1.5 drop-shadow">
-              ⚠️ {chaos.nextWarningType?.replace('_', ' ')} IN {chaos.warningTimeLeft.toFixed(1)}s
+              ⚠️ {chaos.nextWarningType?.replace('_', ' ')} IN{' '}
+              {chaos.warningTimeLeft.toFixed(1)}s
             </span>
           </div>
         )}
@@ -233,7 +275,10 @@ export const GameHUD: React.FC<GameHUDProps> = ({
           {/* Steer buttons */}
           <div className="pointer-events-auto flex gap-2.5">
             <button
-              onTouchStart={(e) => { e.preventDefault(); onControlInput('LEFT'); }}
+              onTouchStart={(e) => {
+                e.preventDefault();
+                onControlInput('LEFT');
+              }}
               onClick={() => onControlInput('LEFT')}
               className="w-14 h-14 rounded-2xl bg-black/75 active:bg-cyan-500/60 border-2 border-cyan-400/60 flex items-center justify-center text-white active:scale-90 transition-transform shadow-2xl"
               aria-label="Steer Left"
@@ -241,7 +286,10 @@ export const GameHUD: React.FC<GameHUDProps> = ({
               <ArrowLeft className="w-7 h-7 text-cyan-300 stroke-[2.5]" />
             </button>
             <button
-              onTouchStart={(e) => { e.preventDefault(); onControlInput('RIGHT'); }}
+              onTouchStart={(e) => {
+                e.preventDefault();
+                onControlInput('RIGHT');
+              }}
               onClick={() => onControlInput('RIGHT')}
               className="w-14 h-14 rounded-2xl bg-black/75 active:bg-cyan-500/60 border-2 border-cyan-400/60 flex items-center justify-center text-white active:scale-90 transition-transform shadow-2xl"
               aria-label="Steer Right"
@@ -253,7 +301,10 @@ export const GameHUD: React.FC<GameHUDProps> = ({
           {/* Action buttons */}
           <div className="pointer-events-auto flex gap-2.5">
             <button
-              onTouchStart={(e) => { e.preventDefault(); onControlInput('SLIDE'); }}
+              onTouchStart={(e) => {
+                e.preventDefault();
+                onControlInput('SLIDE');
+              }}
               onClick={() => onControlInput('SLIDE')}
               className="w-14 h-14 rounded-2xl bg-black/75 active:bg-yellow-500/60 border-2 border-yellow-400/60 flex items-center justify-center text-white active:scale-90 transition-transform shadow-2xl"
               aria-label="Slide Duck"
@@ -261,7 +312,10 @@ export const GameHUD: React.FC<GameHUDProps> = ({
               <ArrowDown className="w-7 h-7 text-yellow-300 stroke-[2.5]" />
             </button>
             <button
-              onTouchStart={(e) => { e.preventDefault(); onControlInput('JUMP'); }}
+              onTouchStart={(e) => {
+                e.preventDefault();
+                onControlInput('JUMP');
+              }}
               onClick={() => onControlInput('JUMP')}
               className="w-14 h-14 rounded-2xl bg-black/75 active:bg-pink-500/60 border-2 border-pink-400/60 flex items-center justify-center text-white active:scale-90 transition-transform shadow-2xl"
               aria-label="Jump Up"

@@ -842,6 +842,7 @@ export default function App() {
 
       {gameStatus === 'PLAYING' && (
         <GameHUD
+          showChallenge={!tutorial.active}
           stats={{ ...stats, highScore, totalCoins }}
           powerUps={powerUps}
           chaos={chaos}

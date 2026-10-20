@@ -1,3 +1,4 @@
+import { challengeAtDistance, makeChallengePattern, MAX_RUN_SPEED, COMPOUND_GATE_SECONDS } from './challenges';
 import { RunnerCamera } from './RunnerCamera';
 import { hitsObstacle } from '../utils/mechanics';
 import { storage } from '../utils/storage';
@@ -380,12 +381,8 @@ export class GameEngine {
   private spawnNextEncounter() {
     if (this.isTutorial || this.boss.state.active) return;
 
-    // Generous spacing early in run (< 200m) to give beginners plenty of reaction time
-    const spacing =
-      this.distanceTraveled < 200
-        ? Math.max(34, this.currentSpeed * 1.35)
-        : Math.max(28, this.currentSpeed * 1.15);
-
+    const profile = challengeAtDistance(-this.spawnCursorZ);
+    const spacing = profile.level === 1 ? Math.max(34, profile.speed * 1.35) : Math.max(30, profile.speed * 1.25);
     this.spawnCursorZ -= spacing;
     const z = this.spawnCursorZ;
 
@@ -408,6 +405,21 @@ export class GameEngine {
       } else {
         this.collectibles.spawnCoinRow(lane, z + 2, 5, 1.8);
       }
+      return;
+    }
+
+    if (profile.level > 1) {
+      const pool = profile.patterns;
+      const pattern = pool[Math.floor(this.getRandom() * pool.length)];
+      const patternSpeed = challengeAtDistance(-z + MAX_RUN_SPEED * COMPOUND_GATE_SECONDS * 2).speed;
+      const rows = makeChallengePattern(pattern, patternSpeed, () => this.getRandom());
+      for (const row of rows) {
+        for (const hazard of row.hazards) this.obstacles.spawnObstacle(hazard.type, hazard.lane, z - row.offset, hazard.type === 'MOVING_DRONE');
+        if (row.safeLane !== undefined) this.collectibles.spawnCoinRow(row.safeLane, z - row.offset + 2, 4, 1.6);
+      }
+      const recovery = pattern === 'JUMP_GATE' || pattern === 'SLIDE_GATE' || pattern === 'RHYTHM' || pattern === 'MIXED_GATE'
+        ? patternSpeed * 1.45 * 1.35 * COMPOUND_GATE_SECONDS : 0;
+      this.spawnCursorZ -= rows[rows.length - 1].offset + recovery;
       return;
     }
 
@@ -803,8 +815,8 @@ export class GameEngine {
     if (this.chaosState.active && this.chaosState.type === 'TURBO_SPEED') {
       speedMult *= 1.35;
     }
-    const baseSpeed = this.isTutorial ? 14.0 : 16.0;
-    const speedRamp = this.isTutorial ? 0 : Math.min(this.distanceTraveled * 0.007, 8.0);
+    const baseSpeed = this.isTutorial ? 14.0 : challengeAtDistance(this.distanceTraveled).speed;
+    const speedRamp = 0;
     this.currentSpeed = (baseSpeed + speedRamp) * speedMult;
 
     // 2. Advance player forward
@@ -840,7 +852,7 @@ export class GameEngine {
 
       // Trigger Algorithm Boss battle encounter at distance milestones
       if (!this.boss.state.active && this.distanceTraveled >= this.nextBossTriggerDistance) {
-        this.nextBossTriggerDistance += 600;
+        this.nextBossTriggerDistance += Math.max(380, 600 - (challengeAtDistance(this.distanceTraveled).level - 1) * 20);
         this.obstacles.clear(); // Boss safe lanes must not overlap old normal encounters.
         this.collectibles.clear();
         this.spawnCursorZ = this.playerZ - 60;
@@ -942,6 +954,9 @@ export class GameEngine {
         () => {
           // Boss Defeated!
           this.bossDefeatedCount++;
+          // High-speed bosses can travel farther than their nominal interval.
+          // Always reserve a normal-play recovery section after a victory.
+          this.nextBossTriggerDistance = this.distanceTraveled + Math.max(320, 600 - (challengeAtDistance(this.distanceTraveled).level - 1) * 25);
           this.spawnCursorZ = this.playerZ - 60;
           this.chaosTimer = 19;
           this.coinsCollected += 150;
@@ -1339,15 +1354,15 @@ export class GameEngine {
     this.callbacks.onChaosUpdate({ ...this.chaosState });
   }
 
-  public reset(initialSkin: Skin, isDailyChallenge: boolean = false) {
+  public reset(initialSkin: Skin, isDailyChallenge: boolean = false, seedDay?: string) {
     this.resetRuntime();
     this.isTutorial = false;
     this.tutorialStep = 0;
     this.isDailyChallenge = isDailyChallenge;
     if (isDailyChallenge) {
-      this.prng = new SeededPRNG(getDailySeed());
-      const obstaclePRNG = new SeededPRNG(getDailySeed() ^ 0x1234);
-      const bossPRNG = new SeededPRNG(getDailySeed() ^ 0x5678);
+      this.prng = new SeededPRNG(getDailySeed(seedDay));
+      const obstaclePRNG = new SeededPRNG(getDailySeed(seedDay) ^ 0x1234);
+      const bossPRNG = new SeededPRNG(getDailySeed(seedDay) ^ 0x5678);
       this.obstacleRandom = () => obstaclePRNG.next();
       this.bossRandom = () => bossPRNG.next();
     } else {
