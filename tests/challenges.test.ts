@@ -8,6 +8,7 @@ import {
   challengeAtDistance,
   makeChallengePattern,
 } from '../src/game/challenges';
+import { LOW_GRAVITY_JUMP_SPEED, LOW_GRAVITY } from '../src/game/physics';
 import { SeededPRNG } from '../src/utils/prng';
 import {
   normalizeCustomSkin,
@@ -20,9 +21,9 @@ import { AVAILABLE_SKINS } from '../src/data/skins';
 test('challenge levels advance at explicit distances and cap at the hardest level', () => {
   assert.equal(challengeAtDistance(-1).level, 1);
   assert.equal(challengeAtDistance(NaN).level, 1);
-  assert.equal(challengeAtDistance(249).level, 1);
-  assert.equal(challengeAtDistance(250).level, 2);
-  assert.equal(challengeAtDistance(2750).level, 12);
+  assert.equal(challengeAtDistance(149).level, 1);
+  assert.equal(challengeAtDistance(150).level, 2);
+  assert.equal(challengeAtDistance(1650).level, 12);
   assert.equal(challengeAtDistance(1e9).level, 12);
   CHALLENGES.forEach((c, i) => {
     if (i) assert.ok(c.speed > CHALLENGES[i - 1].speed);
@@ -123,7 +124,7 @@ test('compound gates retain low-gravity landing time when crossing a speed tier'
       rows[1].offset / (nextSpeed * 1.45 * 1.35) >=
         COMPOUND_GATE_SECONDS - 1e-10,
     );
-    assert.ok(COMPOUND_GATE_SECONDS > (2 * 16.5) / 18 + 0.2);
+    assert.ok(COMPOUND_GATE_SECONDS > (2 * LOW_GRAVITY_JUMP_SPEED) / LOW_GRAVITY + 0.2);
   }
 });
 

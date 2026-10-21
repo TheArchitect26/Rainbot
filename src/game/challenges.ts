@@ -1,87 +1,87 @@
 import type { Lane, ObstacleType } from '../types/game';
 
-export const RULES_VERSION = 'challenge-2';
-export const LEVEL_DISTANCE = 250;
+export const RULES_VERSION = 'challenge-3';
+export const LEVEL_DISTANCE = 150;
 export const MAX_CHALLENGE_LEVEL = 12;
-export const MAX_RUN_SPEED = 30 * 1.45 * 1.35;
-export const COMPOUND_GATE_SECONDS = 2.1;
-export const SLALOM_REACTION_SECONDS = 1.1;
+export const MAX_RUN_SPEED = 36 * 1.45 * 1.35;
+export const COMPOUND_GATE_SECONDS = 1.25;
+export const SLALOM_REACTION_SECONDS = 0.72;
 export const CHALLENGES = [
   {
     level: 1,
     name: 'First Steps',
     skill: 'Learn jumps, slides and lane changes',
-    speed: 16,
+    speed: 18,
     patterns: ['SINGLE'],
   },
   {
     level: 2,
     name: 'Lane Artist',
     skill: 'Read the open lane',
-    speed: 17,
+    speed: 19.5,
     patterns: ['SINGLE', 'SLALOM'],
   },
   {
     level: 3,
     name: 'Air Time',
     skill: 'Jump across full-width low gates',
-    speed: 18,
+    speed: 21,
     patterns: ['SINGLE', 'SLALOM', 'JUMP_GATE'],
   },
   {
     level: 4,
     name: 'Under the Feed',
     skill: 'Slide through overhead gates',
-    speed: 19,
+    speed: 22.5,
     patterns: ['SLALOM', 'JUMP_GATE', 'SLIDE_GATE'],
   },
   {
     level: 5,
     name: 'Drone District',
     skill: 'Track moving hazards',
-    speed: 20,
+    speed: 24,
     patterns: ['SLALOM', 'DRONE', 'SLIDE_GATE'],
   },
   {
     level: 6,
     name: 'Switch Rhythm',
     skill: 'Time alternating jump and slide gates',
-    speed: 21,
+    speed: 25.5,
     patterns: ['SLALOM', 'DRONE', 'RHYTHM', 'MIXED_GATE'],
   },
   {
     level: 7,
     name: 'Cross Traffic',
     skill: 'Chain adjacent safe lanes',
-    speed: 22,
+    speed: 27,
     patterns: ['SLALOM', 'DRONE', 'RHYTHM', 'MIXED_GATE'],
   },
   {
     level: 8,
     name: 'Pressure Test',
     skill: 'Keep your rhythm through boss pressure',
-    speed: 23,
+    speed: 28.5,
     patterns: ['SLALOM', 'DRONE', 'RHYTHM', 'JUMP_GATE', 'MIXED_GATE'],
   },
   {
     level: 9,
     name: 'Signal Storm',
     skill: 'Read warnings before committing',
-    speed: 24.5,
+    speed: 30,
     patterns: ['SLALOM', 'DRONE', 'RHYTHM', 'SLIDE_GATE', 'MIXED_GATE'],
   },
   {
     level: 10,
     name: 'Overclock',
     skill: 'Combine precise movement and timing',
-    speed: 26,
+    speed: 32,
     patterns: ['SLALOM', 'DRONE', 'RHYTHM', 'MIXED_GATE'],
   },
   {
     level: 11,
     name: 'Last Firewall',
     skill: 'Master all hazards at high speed',
-    speed: 28,
+    speed: 34,
     patterns: [
       'SLALOM',
       'DRONE',
@@ -95,7 +95,7 @@ export const CHALLENGES = [
     level: 12,
     name: 'Algorithm Breaker',
     skill: 'Maximum difficulty · survive the full mix',
-    speed: 30,
+    speed: 36,
     patterns: [
       'SLALOM',
       'DRONE',
@@ -121,7 +121,7 @@ export interface ChallengeRow {
 const LANES: Lane[] = [-1, 0, 1];
 
 /** Construct solvable rows once per encounter, using only the run's seeded RNG.
- * Full-width gates reserve 2.1 seconds even at stacked boost + turbo speed, enough for a low-gravity jump.
+ * Full-width gates reserve 1.25 seconds even at stacked boost + turbo speed, enough for the shorter low-gravity jump and landing.
  * Slalom lanes are adjacent; drones never share a row with a forced corridor. */
 export function makeChallengePattern(
   pattern: ChallengePattern,
@@ -130,7 +130,7 @@ export function makeChallengePattern(
 ): ChallengeRow[] {
   const lane = (Math.floor(random() * 3) - 1) as Lane;
   const gap = Math.max(
-    42,
+    18,
     speed *
       1.45 *
       1.35 *
@@ -180,4 +180,17 @@ export function makeChallengePattern(
     offset: i * gap,
     hazards: LANES.map((l) => ({ lane: l, type })),
   }));
+}
+
+/** Every third encounter demands an action, so camping in a lane cannot bypass a run.
+ * Random choice remains seeded; early training is handled separately by the engine. */
+export function chooseChallengePattern(distance: number, encounter: number, random: () => number): ChallengePattern {
+  if (encounter % 3 === 2) return Math.floor(encounter / 3) % 2 === 0 ? 'JUMP_GATE' : 'SLIDE_GATE';
+  const pool = challengeAtDistance(distance).patterns;
+  return pool[Math.min(pool.length - 1, Math.floor(random() * pool.length))];
+}
+
+export function encounterSpacing(speed: number, level: number) {
+  // Reserve input time even with both speed modifiers; pressure rises with tiers.
+  return speed * 1.45 * 1.35 * Math.max(0.72, 1.05 - (level - 1) * 0.03);
 }

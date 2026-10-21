@@ -78,8 +78,13 @@ export class EnvironmentManager {
   private segmentLength = 36;
   private trackGroup: THREE.Group;
   private cityGroup: THREE.Group;
+  private windowMesh!: THREE.InstancedMesh;
+  private readonly windowTransform = new THREE.Object3D();
+  private rimLight: THREE.DirectionalLight;
   private trafficCars: HoverTrafficCar[] = [];
   private retroSunGroup: THREE.Group;
+  private skyDome: THREE.Mesh;
+  private railGlowMaterials: THREE.MeshBasicMaterial[] = [];
   private sunMaterial: THREE.MeshBasicMaterial;
 
   private billboardCanvases: { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D; texture: THREE.CanvasTexture; meme: any }[] = [];
@@ -102,6 +107,7 @@ export class EnvironmentManager {
     const room = new RoomEnvironment();
     this.reflection = pmremGenerator.fromScene(room, 0.04);
     scene.environment = this.reflection.texture;
+    scene.environmentIntensity = 0.55;
     room.dispose();
     pmremGenerator.dispose();
 
@@ -109,6 +115,21 @@ export class EnvironmentManager {
     this.fog = new THREE.Fog(THEME_DEFAULT.fogColor, 40, 135);
     this.scene.fog = this.fog;
     this.scene.background = new THREE.Color(THEME_DEFAULT.fogColor);
+    this.skyDome = new THREE.Mesh(new THREE.SphereGeometry(180, 24, 12), new THREE.ShaderMaterial({
+      uniforms: { horizon: { value: this.fog.color } },
+      vertexShader: 'varying float elevation; void main(){ elevation = normalize(position).y; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+      fragmentShader: `uniform vec3 horizon; varying float elevation;
+        void main(){
+          float glow = pow(1.0 - abs(elevation), 8.0);
+          vec3 color = mix(vec3(0.004, 0.006, 0.018), horizon * 2.8 + vec3(0.025, 0.02, 0.045), glow);
+          gl_FragColor = vec4(color, 1.0);
+          #include <tonemapping_fragment>
+          #include <colorspace_fragment>
+        }`,
+      side: THREE.BackSide, depthWrite: false,
+    }));
+    this.skyDome.renderOrder = -100;
+    this.scene.add(this.skyDome);
 
     // 3. Balanced Warm/Cool Studio Lighting
     this.hemiLight = new THREE.HemisphereLight(
@@ -131,7 +152,11 @@ export class EnvironmentManager {
     this.dirLight.shadow.camera.bottom = -10;
     this.dirLight.shadow.bias = -0.0005;
     this.dirLight.shadow.normalBias = 0.02;
-    this.scene.add(this.dirLight);
+    this.scene.add(this.dirLight, this.dirLight.target);
+    // A shadow-free cool rim separates the runner from the road at every quality.
+    this.rimLight = new THREE.DirectionalLight(0x60a5fa, 1.6);
+    this.rimLight.position.set(-8, 6, -12);
+    this.scene.add(this.rimLight, this.rimLight.target);
 
     // 4. Giant Retro Horizon Sun
     this.retroSunGroup = new THREE.Group();
@@ -184,6 +209,33 @@ export class EnvironmentManager {
       { title: 'DOPAMINE HIT', sub: 'ATTENTION SPAN: 0.2 SECONDS', color: '#ef4444', badge: 'CRITICAL' },
     ];
 
+    // Small, deterministic tiled asphalt; no network textures or post-processing.
+    const asphalt = document.createElement('canvas');
+    asphalt.width = asphalt.height = 128;
+    const asphaltContext = asphalt.getContext('2d')!;
+    const pixels = asphaltContext.createImageData(128, 128);
+    for (let i = 0; i < 128 * 128; i++) {
+      const grain = 175 + ((i * 73 ^ (i >> 3) * 19) % 55);
+      pixels.data.set([grain, grain, grain, 255], i * 4);
+    }
+    asphaltContext.putImageData(pixels, 0, 0);
+    const roadTexture = new THREE.CanvasTexture(asphalt);
+    roadTexture.wrapS = roadTexture.wrapT = THREE.RepeatWrapping;
+    roadTexture.repeat.set(3, 12);
+    roadTexture.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
+    roadTexture.colorSpace = THREE.SRGBColorSpace;
+
+    // Baked lateral glow gives neon road spill without extra lights or bloom passes.
+    const glowCanvas = document.createElement('canvas');
+    glowCanvas.width = 64; glowCanvas.height = 4;
+    const glowContext = glowCanvas.getContext('2d')!;
+    const gradient = glowContext.createLinearGradient(0, 0, 64, 0);
+    gradient.addColorStop(0, 'rgba(255,255,255,0)');
+    gradient.addColorStop(0.5, 'rgba(255,255,255,0.45)');
+    gradient.addColorStop(1, 'rgba(255,255,255,0)');
+    glowContext.fillStyle = gradient; glowContext.fillRect(0, 0, 64, 4);
+    const glowTexture = new THREE.CanvasTexture(glowCanvas);
+
     for (let i = 0; i < this.numSegments; i++) {
       const segment = new THREE.Group();
       const zOffset = -i * this.segmentLength;
@@ -194,8 +246,9 @@ export class EnvironmentManager {
       roadGeo.rotateX(-Math.PI / 2);
       const roadMat = new THREE.MeshStandardMaterial({
         color: this.currentTheme.groundColor,
-        roughness: 0.35,
-        metalness: 0.75,
+        map: roadTexture,
+        roughness: 0.58,
+        metalness: 0.32,
       });
       this.roadMaterials.push(roadMat);
       const road = new THREE.Mesh(roadGeo, roadMat);
@@ -242,6 +295,18 @@ export class EnvironmentManager {
       const rightGlow = new THREE.Mesh(railGlowGeo, railGlowMat);
       rightGlow.position.set(4.28, 0.48, 0);
       segment.add(leftGlow, rightGlow);
+      this.railGlowMaterials.push(railGlowMat);
+      const spillGeometry = new THREE.PlaneGeometry(1.8, this.segmentLength);
+      spillGeometry.rotateX(-Math.PI / 2);
+      const spillMaterial = new THREE.MeshBasicMaterial({ map: glowTexture,
+        color: this.currentTheme.neonMagenta, transparent: true, opacity: 0.5,
+        blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
+      this.railGlowMaterials.push(spillMaterial);
+      for (const side of [-1, 1]) {
+        const spill = new THREE.Mesh(spillGeometry, spillMaterial);
+        spill.position.set(side * 3.85, 0.012, 0);
+        segment.add(spill);
+      }
 
       // Holographic Archway over every 2nd segment
       if (i % 2 === 1) {
@@ -315,6 +380,14 @@ export class EnvironmentManager {
     const pinkWindowMat = new THREE.MeshBasicMaterial({ color: 0xec4899 });
     const goldWindowMat = new THREE.MeshBasicMaterial({ color: 0xfacc15 });
 
+    this.windowMesh = new THREE.InstancedMesh(
+      new THREE.BoxGeometry(1, 1, 1),
+      new THREE.MeshBasicMaterial({ color: 0xffffff }),
+      44 * 24,
+    );
+    this.windowMesh.frustumCulled = false;
+    this.scene.add(this.windowMesh);
+
     // 44 cyber towers placed outside track borders
     for (let i = 0; i < 44; i++) {
       const building = new THREE.Group();
@@ -344,8 +417,28 @@ export class EnvironmentManager {
       building.add(beacon);
 
       building.position.set(x, 0, z);
+      building.userData.windowIndex = i;
+      building.userData.windowWidth = width;
+      building.userData.windowDepth = depth;
+      building.userData.windowHeight = height;
       this.cityGroup.add(building);
+      this.placeWindows(building);
+      for (let w = 0; w < 24; w++)
+        this.windowMesh.setColorAt(i * 24 + w, new THREE.Color(w % 5 === 0 ? 0xffc685 : i % 2 ? 0x3787ad : 0x735b9e));
     }
+  }
+
+  private placeWindows(building: THREE.Object3D) {
+    const { windowIndex: index, windowWidth: width, windowDepth: depth, windowHeight: height } = building.userData;
+    const transform = this.windowTransform;
+    for (let w = 0; w < 24; w++) {
+      transform.position.set(building.position.x + ((w % 3) - 1) * width * 0.27,
+        2 + Math.floor(w / 3) * (height - 5) / 8, building.position.z + depth * 0.5 + 0.03);
+      transform.scale.set(width * 0.14, 0.65, 0.05);
+      transform.updateMatrix();
+      this.windowMesh.setMatrixAt(index * 24 + w, transform.matrix);
+    }
+    this.windowMesh.instanceMatrix.needsUpdate = true;
   }
 
   private buildHoverTraffic() {
@@ -384,6 +477,12 @@ export class EnvironmentManager {
   }
 
   public update(playerZ: number, dt: number, globalTime: number) {
+    // Keep illumination and the shadow frustum near the runner throughout long runs.
+    this.dirLight.position.z = playerZ + 14;
+    this.dirLight.target.position.z = playerZ - 12;
+    this.rimLight.position.z = playerZ - 12;
+    this.rimLight.target.position.z = playerZ;
+
     // 1. Recycle Track Segments seamlessly
     const activeDistance = this.segmentLength * this.numSegments;
     for (const segment of this.trackSegments) {
@@ -396,6 +495,7 @@ export class EnvironmentManager {
     for (const child of this.cityGroup.children) {
       if (child.position.z > playerZ + 30) {
         child.position.z -= 240;
+        this.placeWindows(child);
       }
     }
 
@@ -411,6 +511,7 @@ export class EnvironmentManager {
 
     // 4. Update Retro Horizon Sun position to follow player forward
     this.retroSunGroup.position.z = playerZ;
+    this.skyDome.position.z = playerZ;
 
     // 5. Animate Holographic Billboards (pulsating borders & scanlines)
     this.billboardTimer += dt;
@@ -481,6 +582,7 @@ export class EnvironmentManager {
     for (const mat of this.laneLineMaterials) {
       mat.color.setHex(theme.neonCyan);
     }
+    for (const mat of this.railGlowMaterials) mat.color.setHex(theme.neonMagenta);
     for (const mat of this.roadMaterials) {
       mat.color.setHex(theme.groundColor);
     }
@@ -488,7 +590,10 @@ export class EnvironmentManager {
 
   public reset() {
     for (const object of this.trackSegments) object.position.z = object.userData.initialZ;
-    for (const object of this.cityGroup.children) object.position.z = object.userData.initialZ;
+    for (const object of this.cityGroup.children) {
+      object.position.z = object.userData.initialZ;
+      this.placeWindows(object);
+    }
     for (const car of this.trafficCars) car.mesh.position.z = car.mesh.userData.initialZ;
   }
 

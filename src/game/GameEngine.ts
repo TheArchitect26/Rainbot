@@ -1,4 +1,5 @@
-import { challengeAtDistance, makeChallengePattern, MAX_RUN_SPEED, COMPOUND_GATE_SECONDS } from './challenges';
+import { integrateJump, integrateLane, JUMP_SPEED, JUMP_GRAVITY, LOW_GRAVITY_JUMP_SPEED, LOW_GRAVITY, SLIDE_SECONDS } from './physics';
+import { challengeAtDistance, makeChallengePattern, MAX_RUN_SPEED, COMPOUND_GATE_SECONDS, chooseChallengePattern, encounterSpacing } from './challenges';
 import { RunnerCamera } from './RunnerCamera';
 import { hitsObstacle } from '../utils/mechanics';
 import { storage } from '../utils/storage';
@@ -113,6 +114,9 @@ export class GameEngine {
   private playerY: number = 0;
   private playerZ: number = 0;
   private velY: number = 0;
+  private laneVelocity = 0;
+  private jumpGravity = JUMP_GRAVITY;
+  private encounterCount = 0;
   private isJumping: boolean = false;
   private isSliding: boolean = false;
   private slideTimer: number = 0;
@@ -120,7 +124,7 @@ export class GameEngine {
   private lastLaneChangeTime: number = 0;
 
   // Speed, Distance, Stats & Progression
-  private baseSpeed: number = 16.0;
+  private baseSpeed: number = 18.0;
   private currentSpeed: number = 16.0;
   private distanceTraveled: number = 0;
   private coinsCollected: number = 0;
@@ -155,7 +159,7 @@ export class GameEngine {
 
   // Track spawner
   private spawnCursorZ: number = -25;
-  private nextPowerUpDistance: number = 75;
+  private nextPowerUpDistance: number = 160;
 
   // Active Power-ups
   private activePowerUps: Map<PowerUpType, number> = new Map();
@@ -381,89 +385,37 @@ export class GameEngine {
   private spawnNextEncounter() {
     if (this.isTutorial || this.boss.state.active) return;
 
+    // Forecast the fastest tier that this pattern can cross, including recovery.
+    const forecastDistance = -this.spawnCursorZ + MAX_RUN_SPEED * (COMPOUND_GATE_SECONDS * 2 + 1.05);
+    const patternSpeed = challengeAtDistance(forecastDistance).speed;
     const profile = challengeAtDistance(-this.spawnCursorZ);
-    const spacing = profile.level === 1 ? Math.max(34, profile.speed * 1.35) : Math.max(30, profile.speed * 1.25);
+    const spacing = encounterSpacing(patternSpeed, profile.level);
     this.spawnCursorZ -= spacing;
     const z = this.spawnCursorZ;
 
-    // Power-up check
-    if (Math.abs(z) > this.nextPowerUpDistance) {
-      this.nextPowerUpDistance += 95 + this.getRandom() * 45;
-      const powerUpTypes: PowerUpType[] = ['MAGNET', 'SHIELD', 'SPEED_BOOST', 'DOUBLE_COINS'];
-      const chosenType = powerUpTypes[Math.floor(this.getRandom() * powerUpTypes.length)];
-      const lane = (Math.floor(this.getRandom() * 3) - 1) as Lane;
-      this.collectibles.spawnPowerUp(chosenType, lane, z);
-      return;
+    // Power-ups accompany a pattern, never replace the whole encounter with empty road.
+    if (-z > this.nextPowerUpDistance) {
+      this.nextPowerUpDistance += 220 + this.getRandom() * 80;
+      const types: PowerUpType[] = ['MAGNET', 'SHIELD', 'SPEED_BOOST', 'DOUBLE_COINS'];
+      this.collectibles.spawnPowerUp(types[Math.floor(this.getRandom() * types.length)],
+        (Math.floor(this.getRandom() * 3) - 1) as Lane, z + 10);
     }
 
-    // Post-chaos safe transition buffer: avoid brutal double blocks right as controls switch
-    if (this.postChaosSafeTimer > 0) {
-      const lane = (Math.floor(this.getRandom() * 3) - 1) as Lane;
-      if (this.getRandom() > 0.4) {
-        this.obstacles.spawnObstacle('LOW_BARRIER', lane, z);
-        this.collectibles.spawnCoinArc(lane, z + 2, 5, 1.5);
-      } else {
-        this.collectibles.spawnCoinRow(lane, z + 2, 5, 1.8);
-      }
-      return;
+    const pattern = this.postChaosSafeTimer > 0 ? 'SINGLE'
+      : chooseChallengePattern(-z, this.encounterCount++, () => this.getRandom());
+    const rows = makeChallengePattern(pattern, patternSpeed, () => this.getRandom());
+    for (const row of rows) {
+      for (const hazard of row.hazards)
+        this.obstacles.spawnObstacle(hazard.type, hazard.lane, z - row.offset, hazard.type === 'MOVING_DRONE');
+      if (row.safeLane !== undefined)
+        this.collectibles.spawnCoinRow(row.safeLane, z - row.offset + 2, 4, 1.6);
+      else if (pattern === 'JUMP_GATE')
+        this.collectibles.spawnCoinArc(0, z - row.offset + 2, 5, 1.5);
     }
-
-    if (profile.level > 1) {
-      const pool = profile.patterns;
-      const pattern = pool[Math.floor(this.getRandom() * pool.length)];
-      const patternSpeed = challengeAtDistance(-z + MAX_RUN_SPEED * COMPOUND_GATE_SECONDS * 2).speed;
-      const rows = makeChallengePattern(pattern, patternSpeed, () => this.getRandom());
-      for (const row of rows) {
-        for (const hazard of row.hazards) this.obstacles.spawnObstacle(hazard.type, hazard.lane, z - row.offset, hazard.type === 'MOVING_DRONE');
-        if (row.safeLane !== undefined) this.collectibles.spawnCoinRow(row.safeLane, z - row.offset + 2, 4, 1.6);
-      }
-      const recovery = pattern === 'JUMP_GATE' || pattern === 'SLIDE_GATE' || pattern === 'RHYTHM' || pattern === 'MIXED_GATE'
-        ? patternSpeed * 1.45 * 1.35 * COMPOUND_GATE_SECONDS : 0;
-      this.spawnCursorZ -= rows[rows.length - 1].offset + recovery;
-      return;
-    }
-
-    const roll = this.getRandom();
-
-    // Early game (< 120m) only serves single barriers to let player learn smoothly
-    if (this.distanceTraveled < 120) {
-      const lane = (Math.floor(this.getRandom() * 3) - 1) as Lane;
-      if (roll < 0.5) {
-        this.obstacles.spawnObstacle('LOW_BARRIER', lane, z);
-        this.collectibles.spawnCoinArc(lane, z + 2, 5, 1.5);
-      } else {
-        this.obstacles.spawnObstacle('HIGH_BARRIER', lane, z);
-        this.collectibles.spawnCoinRow(lane, z + 2, 4, 1.3, 0.4);
-      }
-      return;
-    }
-
-    if (roll < 0.28) {
-      const lane = (Math.floor(this.getRandom() * 3) - 1) as Lane;
-      this.obstacles.spawnObstacle('LOW_BARRIER', lane, z);
-      this.collectibles.spawnCoinArc(lane, z + 2, 5, 1.5);
-    } else if (roll < 0.52) {
-      const lane = (Math.floor(this.getRandom() * 3) - 1) as Lane;
-      this.obstacles.spawnObstacle('HIGH_BARRIER', lane, z);
-      this.collectibles.spawnCoinRow(lane, z + 2, 4, 1.3, 0.4);
-    } else if (roll < 0.76) {
-      const blockedLane = (Math.floor(this.getRandom() * 3) - 1) as Lane;
-      this.obstacles.spawnObstacle('FULL_BLOCK', blockedLane, z);
-      const openLane = (blockedLane === 0 ? 1 : 0) as Lane;
-      this.collectibles.spawnCoinRow(openLane, z + 2, 4, 1.6);
-    } else if (roll < 0.9) {
-      this.obstacles.spawnObstacle('MOVING_DRONE', 0, z, true);
-    } else {
-      const safeLane = (Math.floor(this.getRandom() * 3) - 1) as Lane;
-      const allLanes: Lane[] = [-1, 0, 1];
-      for (const l of allLanes) {
-        if (l !== safeLane) {
-          const type: ObstacleType = this.getRandom() > 0.5 ? 'LOW_BARRIER' : 'FULL_BLOCK';
-          this.obstacles.spawnObstacle(type, l, z);
-        }
-      }
-      this.collectibles.spawnCoinRow(safeLane, z + 3, 5, 1.8);
-    }
+    // A following encounter must leave enough landing time after a gate or drone.
+    const gated = pattern !== 'SINGLE' && pattern !== 'SLALOM';
+    const recovery = gated ? patternSpeed * 1.45 * 1.35 * COMPOUND_GATE_SECONDS : 0;
+    this.spawnCursorZ -= rows[rows.length - 1].offset + Math.max(0, recovery - spacing);
   }
 
   // --- Input Handling ---
@@ -513,7 +465,8 @@ export class GameEngine {
         this.isJumping = true;
         this.isSliding = false;
         const isLowGrav = this.chaosState.active && this.chaosState.type === 'LOW_GRAVITY';
-        this.velY = isLowGrav ? 16.5 : 12.8;
+        this.velY = isLowGrav ? LOW_GRAVITY_JUMP_SPEED : JUMP_SPEED;
+        this.jumpGravity = isLowGrav ? LOW_GRAVITY : JUMP_GRAVITY;
         sounds.playJump();
         this.triggerHaptic(16);
         this.particles.emit(this.playerX, 0.1, this.playerZ, 12, 0x06b6d4, 3, 0.4);
@@ -528,7 +481,7 @@ export class GameEngine {
         this.velY = -18;
       }
       this.isSliding = true;
-      this.slideTimer = 0.75;
+      this.slideTimer = SLIDE_SECONDS;
       sounds.playSlide();
       this.triggerHaptic(18);
       this.particles.emit(this.playerX, 0.05, this.playerZ + 0.3, 14, 0xfacc15, 3.5, 0.3);
@@ -739,6 +692,8 @@ export class GameEngine {
 
   public pause() {
     this.isPaused = true;
+    this.inputBuffer = null;
+    this.inputBufferTimer = 0;
     sounds.stopBGM();
   }
 
@@ -807,7 +762,7 @@ export class GameEngine {
     )
       this.prepareTutorialStep();
 
-    // 1. Calculate Speed (Balanced ramp with beginner-friendly 16.0 base speed)
+    // 1. Distance-based challenge ramp; tutorial retains its own slower speed.
     let speedMult = 1.0;
     if (this.activePowerUps.has('SPEED_BOOST')) {
       speedMult *= 1.45;
@@ -865,16 +820,18 @@ export class GameEngine {
 
     // 3. Lane Switching Physics
     const targetX = LANE_POSITIONS[this.targetLane];
-    this.playerX = THREE.MathUtils.damp(this.playerX, targetX, 17, dt);
-    this.laneChangeTilt = THREE.MathUtils.damp(this.laneChangeTilt, 0, 8, dt);
+    const laneMotion = integrateLane(this.playerX, this.laneVelocity, targetX, dt);
+    this.playerX = laneMotion.x;
+    this.laneVelocity = laneMotion.velocity;
+    this.laneChangeTilt = THREE.MathUtils.damp(this.laneChangeTilt,
+      THREE.MathUtils.clamp(-this.laneVelocity * 0.018, -0.32, 0.32), 18, dt);
 
     // 4. Jump & Gravity Physics
     if (this.isJumping) {
-      const isLowGrav = this.chaosState.active && this.chaosState.type === 'LOW_GRAVITY';
-      const gravity = isLowGrav ? 18 : 34;
-
-      this.playerY += this.velY * dt;
-      this.velY -= gravity * dt;
+      // Latch gravity on takeoff: a chaos transition cannot change a jump mid-air.
+      const jump = integrateJump(this.playerY, this.velY, this.jumpGravity, dt);
+      this.playerY = jump.y;
+      this.velY = jump.velocity;
 
       if (this.playerY <= 0) {
         this.playerY = 0;
@@ -921,8 +878,10 @@ export class GameEngine {
       this.currentSpeed / 22,
       this.laneChangeTilt,
       this.globalTime,
+      this.velY,
     );
 
+    this.character.updateGroundShadow(this.playerY);
     this.character.shieldMesh.visible = this.activePowerUps.has('SHIELD');
     this.character.magnetRing.visible = this.activePowerUps.has('MAGNET');
     this.character.boostAura.visible =
@@ -1141,16 +1100,6 @@ export class GameEngine {
         }
       }
       if (collides) {
-        if (this.activePowerUps.has('SPEED_BOOST')) {
-          obs.passed = true;
-          sounds.playShieldBreak();
-          this.triggerHaptic([30, 40]);
-          this.particles.emit(mesh.position.x, 1.2, mesh.position.z, 25, 0xef4444, 6, 0.5);
-          this.obstacles.removeObstacle(obs.id);
-          this.cameraShake = 0.3;
-          return;
-        }
-
         if (this.activePowerUps.has('SHIELD')) {
           obs.passed = true;
           this.activePowerUps.delete('SHIELD');
@@ -1237,6 +1186,8 @@ export class GameEngine {
     this.currentLane = 0;
     this.targetLane = 0;
     this.playerX = 0;
+    this.laneVelocity = 0;
+    this.encounterCount = 0;
     this.playerY = 0;
     this.playerZ = 0;
     this.velY = 0;
@@ -1376,6 +1327,8 @@ export class GameEngine {
     this.currentLane = 0;
     this.targetLane = 0;
     this.playerX = 0;
+    this.laneVelocity = 0;
+    this.encounterCount = 0;
     this.playerY = 0;
     this.playerZ = 0;
     this.velY = 0;
@@ -1394,7 +1347,7 @@ export class GameEngine {
     this.nextBossTriggerDistance = 450;
     this.currentSpeed = this.baseSpeed;
     this.spawnCursorZ = -25;
-    this.nextPowerUpDistance = 75;
+    this.nextPowerUpDistance = 160;
     this.cameraShake = 0;
     this.hitstopDuration = 0;
     this.isInvulnerable = false;

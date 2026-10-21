@@ -10,26 +10,26 @@ The named Night Shift (rank level 4), Varsity Ace (8) and Apex Runner (30) outfi
 
 ## Twelve run challenge levels
 
-Player XP rank earns cosmetics. Run challenge level describes the hazards currently encountered; it advances every 250m, independently of player rank. Everyone starts each run at challenge 1, preserving a fair daily course. At 2750m the run reaches level 12 and continues at maximum difficulty. It does not award an automatic clear or promise an unbeatable final boss.
+Player XP rank earns cosmetics. Run challenge level describes the hazards currently encountered; it advances every 150m, independently of player rank. Everyone starts each run at challenge 1, preserving a fair daily course. At 1650m the run reaches level 12 and continues at maximum difficulty. It does not award an automatic clear or promise an unbeatable final boss.
 
 | Challenge | Starts | Base speed (m/s) | Skill focus |
 | --- | ---: | ---: | --- |
-| 1 First Steps | 0m | 16 | Single barriers and lane changes |
-| 2 Lane Artist | 250m | 17 | Adjacent safe-lane slaloms |
-| 3 Air Time | 500m | 18 | Full-width low gates: jump |
-| 4 Under the Feed | 750m | 19 | Full-width overhead gates: slide |
-| 5 Drone District | 1000m | 20 | Moving hazards |
-| 6 Switch Rhythm | 1250m | 21 | Alternating jump/slide gates |
-| 7 Cross Traffic | 1500m | 22 | Faster mixed sequences and route choices |
-| 8 Pressure Test | 1750m | 23 | Boss pressure and mixed movement |
-| 9 Signal Storm | 2000m | 24.5 | Warning interpretation |
-| 10 Overclock | 2250m | 26 | Timing plus lane precision |
-| 11 Last Firewall | 2500m | 28 | Full hazard repertoire |
-| 12 Algorithm Breaker | 2750m | 30 | Maximum-speed mixed survival |
+| 1 First Steps | 0m | 18 | Barriers plus compulsory jump/slide gates |
+| 2 Lane Artist | 150m | 19.5 | Adjacent safe-lane slaloms |
+| 3 Air Time | 300m | 21 | Full-width low gates: jump |
+| 4 Under the Feed | 450m | 22.5 | Full-width overhead gates: slide |
+| 5 Drone District | 600m | 24 | Moving hazards |
+| 6 Switch Rhythm | 750m | 25.5 | Alternating jump/slide gates |
+| 7 Cross Traffic | 900m | 27 | Faster mixed sequences and route choices |
+| 8 Pressure Test | 1050m | 28.5 | Boss pressure and mixed movement |
+| 9 Signal Storm | 1200m | 30 | Warning interpretation |
+| 10 Overclock | 1350m | 32 | Timing plus lane precision |
+| 11 Last Firewall | 1500m | 34 | Full hazard repertoire |
+| 12 Algorithm Breaker | 1650m | 36 | Maximum-speed mixed survival |
 
-Skills are introduced progressively and mixed using the seeded generator; later levels reuse and recombine them rather than adding twelve separate control schemes. The HUD shows the current challenge and skill focus. Existing powers, four visual zones, chaos events, missions and telegraphed bosses remain.
+Compulsory jump and slide gates alternate every third normal encounter from the first tier. Other skills are introduced progressively and mixed using the seeded generator; later levels reuse and recombine them rather than adding twelve separate control schemes. The HUD shows the current challenge and skill focus. Existing powers, four visual zones, chaos events, missions and telegraphed bosses remain.
 
-Full-width gates require an action rather than a safe lane. Mixed rows never fill all lanes with full walls; slaloms preserve an adjacent open lane, and drones do not share a row with a forced corridor. Compound gates reserve at least 2.1 seconds (covering a low-gravity jump and recovery) at the forecast stacked boost/turbo speed across tier boundaries, including recovery after a gate. Boss hazards retain their two-second lead, clear old hazards, and always leave a normal-play section after victory to prevent high-speed back-to-back boss fights.
+Full-width gates require an action rather than a safe lane. Mixed rows never fill all lanes with full walls; slaloms preserve an adjacent open lane, and drones do not share a row with a forced corridor. Compound gates reserve at least 1.25 seconds (covering a low-gravity jump and recovery) at the forecast stacked boost/turbo speed across tier boundaries, including recovery after a gate. Power-ups accompany hazards rather than replacing them with empty road. Speed boost increases speed but does not grant immunity; a shield absorbs one hit. Rules version is `challenge-3`, keeping rankings separate from the easier previous course. Boss hazards retain their two-second lead, clear old hazards, and always leave a normal-play section after victory to prevent high-speed back-to-back boss fights.
 
 ## What still needs playtesting
 

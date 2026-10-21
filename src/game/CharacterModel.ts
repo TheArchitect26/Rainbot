@@ -52,6 +52,8 @@ export class CharacterModel {
 
   private runCycleTime: number = 0;
   private squashFactor: number = 1.0;
+  private readonly shadowTranslation = new THREE.Matrix4();
+  private readonly shadowScale = new THREE.Vector3();
   private materialsToUpdate: THREE.MeshStandardMaterial[] = [];
   private street: StreetAvatar;
   private streetNodes: THREE.Object3D[] = [];
@@ -472,7 +474,8 @@ export class CharacterModel {
     status: 'RUN' | 'JUMP' | 'SLIDE' | 'CRASH' | 'IDLE',
     speedRatio: number,
     tiltAngle: number,
-    globalTime: number
+    globalTime: number,
+    verticalVelocity = 0
   ) {
     // 1. Natural Blinking & Expression update
     const wasBlinking = this.isBlinking;
@@ -526,6 +529,12 @@ export class CharacterModel {
     this.rightEarGroup.rotation.x = -earBounce;
     this.antennaGroup.rotation.z = Math.sin(globalTime * 10) * 0.2 - tiltAngle * 0.4;
 
+    // Clear crash-only rotations when returning to the menu or starting another run.
+    if (status !== 'CRASH') {
+      this.torsoGroup.rotation.z = THREE.MathUtils.damp(this.torsoGroup.rotation.z, 0, 18, dt);
+      this.headGroup.rotation.z = THREE.MathUtils.damp(this.headGroup.rotation.z, 0, 18, dt);
+    }
+
     // 4. State Animations
     if (status === 'IDLE') {
       this.dizzyStarsGroup.visible = false;
@@ -568,8 +577,10 @@ export class CharacterModel {
       this.headGroup.rotation.x = -0.15;
       this.leftArmGroup.rotation.x = -1.6;
       this.rightArmGroup.rotation.x = -1.6;
-      this.leftLegGroup.rotation.x = 0.65;
-      this.rightLegGroup.rotation.x = 0.75;
+      // Tuck on ascent, extend feet on descent to anticipate the landing.
+      const tuck = THREE.MathUtils.clamp(verticalVelocity / 11, -1, 1);
+      this.leftLegGroup.rotation.x = THREE.MathUtils.damp(this.leftLegGroup.rotation.x, 0.4 + tuck * 0.5, 18, dt);
+      this.rightLegGroup.rotation.x = THREE.MathUtils.damp(this.rightLegGroup.rotation.x, 0.5 + tuck * 0.5, 18, dt);
       this.shadowDisk.scale.set(0.55, 0.55, 0.55);
       return;
     }
@@ -599,8 +610,8 @@ export class CharacterModel {
     const armAngle = -legAngle * 1.05;
     const bodyBob = Math.abs(Math.sin(this.runCycleTime)) * 0.16;
 
-    this.torsoGroup.position.y = 1.05 + bodyBob;
-    this.torsoGroup.rotation.x = 0.14; // forward aerodynamic lean
+    this.torsoGroup.position.y = THREE.MathUtils.damp(this.torsoGroup.position.y, 1.05 + bodyBob, 22, dt);
+    this.torsoGroup.rotation.x = THREE.MathUtils.damp(this.torsoGroup.rotation.x, 0.14 + Math.min(0.1, speedRatio * 0.04), 18, dt); // forward aerodynamic lean
     this.headGroup.rotation.x = -0.06;
     this.headGroup.rotation.y = 0;
     this.leftArmGroup.rotation.z = 0;
@@ -613,6 +624,19 @@ export class CharacterModel {
     this.rightArmGroup.rotation.x = -armAngle;
 
     this.shadowDisk.scale.set(1, 1, 1);
+  }
+
+  /** Keep the cheap contact shadow on the road while the character jumps and leans. */
+  public updateGroundShadow(height: number) {
+    this.group.updateMatrix();
+    // Inverse character transform cancels scale, squash and lane lean for the disk.
+    const matrix = this.shadowDisk.matrix;
+    matrix.copy(this.group.matrix).invert();
+    matrix.multiply(this.shadowTranslation.makeTranslation(this.group.position.x, 0.025, this.group.position.z));
+    const spread = 1 + Math.min(2.5, height) * 0.16;
+    matrix.scale(this.shadowScale.set(spread, 1, spread));
+    this.shadowDisk.matrixAutoUpdate = false;
+    (this.shadowDisk.material as THREE.MeshBasicMaterial).opacity = Math.max(0.12, 0.4 - height * 0.1);
   }
 
   public setDebugHitbox(enabled: boolean, isSliding: boolean) {
