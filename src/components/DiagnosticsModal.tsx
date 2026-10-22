@@ -1,3 +1,4 @@
+import { BUILD_INFO } from '../utils/buildInfo';
 import React, { useState, useEffect } from 'react';
 import { X, Activity, Cpu, ShieldCheck, Copy, Check, RotateCcw, AlertTriangle, Eye } from 'lucide-react';
 import { DiagnosticsData, localAnalytics } from '../utils/analytics';
@@ -38,6 +39,7 @@ export const DiagnosticsModal: React.FC<DiagnosticsModalProps> = ({
   return (
     <div role="dialog" aria-modal="true" aria-label="Diagnostics" className="absolute inset-0 z-50 flex items-center justify-center p-3 sm:p-4 pt-safe pb-safe bg-black/90 select-none">
       <div className="w-full max-w-lg bg-neutral-950 border-2 border-cyan-400/60 rounded-3xl p-5 shadow-2xl flex flex-col max-h-[90vh]">
+        <div className="text-[10px] text-neutral-400 font-mono">v{BUILD_INFO.version} · {BUILD_INFO.commit} · {BUILD_INFO.rules}</div>
         {/* Header */}
         <div className="flex items-center justify-between border-b border-white/10 pb-3">
           <div className="flex items-center gap-2.5">

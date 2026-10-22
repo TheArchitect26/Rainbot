@@ -1,3 +1,4 @@
+import { ZoneScenery } from './ZoneScenery';
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 
@@ -78,6 +79,12 @@ export class EnvironmentManager {
   private segmentLength = 36;
   private trackGroup: THREE.Group;
   private cityGroup: THREE.Group;
+  private cityBodies!: THREE.InstancedMesh;
+  private cityStrips!: THREE.InstancedMesh;
+  private cityBeacons!: THREE.InstancedMesh;
+  private zoneScenery: ZoneScenery;
+  private quality: 'low' | 'medium' | 'high' = 'medium';
+  private detailedObjects: THREE.Object3D[] = [];
   private windowMesh!: THREE.InstancedMesh;
   private readonly windowTransform = new THREE.Object3D();
   private rimLight: THREE.DirectionalLight;
@@ -182,6 +189,8 @@ export class EnvironmentManager {
     this.buildTrackSegments(renderer);
     this.buildCitySkyline();
     this.buildHoverTraffic();
+    this.zoneScenery = new ZoneScenery(this.scene);
+    this.setQuality('medium');
     for (const object of [...this.trackSegments, ...this.cityGroup.children, ...this.trafficCars.map((c) => c.mesh)]) object.userData.initialZ = object.position.z;
   }
 
@@ -306,6 +315,7 @@ export class EnvironmentManager {
         const spill = new THREE.Mesh(spillGeometry, spillMaterial);
         spill.position.set(side * 3.85, 0.012, 0);
         segment.add(spill);
+        this.detailedObjects.push(spill);
       }
 
       // Holographic Archway over every 2nd segment
@@ -314,6 +324,7 @@ export class EnvironmentManager {
         const arch = this.createArchway(memes[memeIdx]);
         arch.position.set(0, 0, 0);
         segment.add(arch);
+        this.detailedObjects.push(arch);
       }
 
       this.trackSegments.push(segment);
@@ -369,76 +380,57 @@ export class EnvironmentManager {
   }
 
   private buildCitySkyline() {
-    const buildingGeo = new THREE.BoxGeometry(1, 1, 1);
-    const darkBuildingMat = new THREE.MeshStandardMaterial({
-      color: 0x070716,
-      metalness: 0.85,
-      roughness: 0.25,
-    });
-
-    const glowWindowMat = new THREE.MeshBasicMaterial({ color: 0x06b6d4 });
-    const pinkWindowMat = new THREE.MeshBasicMaterial({ color: 0xec4899 });
-    const goldWindowMat = new THREE.MeshBasicMaterial({ color: 0xfacc15 });
-
-    this.windowMesh = new THREE.InstancedMesh(
-      new THREE.BoxGeometry(1, 1, 1),
-      new THREE.MeshBasicMaterial({ color: 0xffffff }),
-      44 * 24,
-    );
-    this.windowMesh.frustumCulled = false;
-    this.scene.add(this.windowMesh);
-
-    // 44 cyber towers placed outside track borders
+    const box = new THREE.BoxGeometry(1, 1, 1);
+    this.cityBodies = new THREE.InstancedMesh(box, new THREE.MeshStandardMaterial({ color: 0x101323, roughness: 0.65, metalness: 0.25 }), 44);
+    this.cityStrips = new THREE.InstancedMesh(box, new THREE.MeshBasicMaterial({ color: 0xffffff }), 44);
+    this.cityBeacons = new THREE.InstancedMesh(box, new THREE.MeshBasicMaterial({ color: 0xffffff }), 44);
+    this.windowMesh = new THREE.InstancedMesh(box, new THREE.MeshBasicMaterial({ color: 0xffffff }), 44 * 24);
+    for (const mesh of [this.cityBodies, this.cityStrips, this.cityBeacons, this.windowMesh]) {
+      mesh.frustumCulled = false;
+      this.scene.add(mesh);
+    }
+    const color = new THREE.Color();
     for (let i = 0; i < 44; i++) {
       const building = new THREE.Group();
-      const isLeft = i % 2 === 0;
-      const x = (isLeft ? -1 : 1) * (11 + Math.random() * 26);
-      const z = -Math.random() * 240;
       const height = 18 + Math.random() * 42;
-      const width = 5 + Math.random() * 8;
-      const depth = 5 + Math.random() * 8;
-
-      const mainBlock = new THREE.Mesh(buildingGeo, darkBuildingMat);
-      mainBlock.scale.set(width, height, depth);
-      mainBlock.position.y = height / 2 - 2;
-      building.add(mainBlock);
-
-      // Colored corner neon strip
-      const stripMat = i % 3 === 0 ? pinkWindowMat : i % 3 === 1 ? glowWindowMat : goldWindowMat;
-      const strip = new THREE.Mesh(buildingGeo, stripMat);
-      strip.scale.set(0.18, height * 0.85, 0.18);
-      strip.position.set(width * 0.48, height * 0.5, depth * 0.48);
-      building.add(strip);
-
-      // Rooftop antenna beacon
-      const beaconGeo = new THREE.CylinderGeometry(0.08, 0.08, 5, 4);
-      const beacon = new THREE.Mesh(beaconGeo, stripMat);
-      beacon.position.set(0, height, 0);
-      building.add(beacon);
-
-      building.position.set(x, 0, z);
-      building.userData.windowIndex = i;
-      building.userData.windowWidth = width;
-      building.userData.windowDepth = depth;
-      building.userData.windowHeight = height;
+      const width = 5 + Math.random() * 8, depth = 5 + Math.random() * 8;
+      building.position.set((i % 2 ? 1 : -1) * (14 + Math.random() * 26), 0, -Math.random() * 240);
+      Object.assign(building.userData, { windowIndex: i, windowWidth: width, windowDepth: depth, windowHeight: height });
       this.cityGroup.add(building);
       this.placeWindows(building);
+      color.setHex(i % 3 === 0 ? 0x9363b8 : 0x3f8d9c);
+      this.cityStrips.setColorAt(i, color);
+      this.cityBeacons.setColorAt(i, color);
       for (let w = 0; w < 24; w++)
-        this.windowMesh.setColorAt(i * 24 + w, new THREE.Color(w % 5 === 0 ? 0xffc685 : i % 2 ? 0x3787ad : 0x735b9e));
+        this.windowMesh.setColorAt(i * 24 + w, color.setHex(w % 5 === 0 ? 0xd0a777 : i % 2 ? 0x3787ad : 0x735b9e));
     }
   }
 
   private placeWindows(building: THREE.Object3D) {
     const { windowIndex: index, windowWidth: width, windowDepth: depth, windowHeight: height } = building.userData;
-    const transform = this.windowTransform;
+    const t = this.windowTransform, x = building.position.x, z = building.position.z;
+    t.position.set(x, height / 2 - 2, z); t.scale.set(width, height, depth); t.updateMatrix();
+    this.cityBodies.setMatrixAt(index, t.matrix);
+    t.position.set(x + width * 0.48, height * 0.5, z + depth * 0.48); t.scale.set(0.14, height * 0.85, 0.14); t.updateMatrix();
+    this.cityStrips.setMatrixAt(index, t.matrix);
+    t.position.set(x, height, z); t.scale.set(0.1, 5, 0.1); t.updateMatrix();
+    this.cityBeacons.setMatrixAt(index, t.matrix);
     for (let w = 0; w < 24; w++) {
-      transform.position.set(building.position.x + ((w % 3) - 1) * width * 0.27,
-        2 + Math.floor(w / 3) * (height - 5) / 8, building.position.z + depth * 0.5 + 0.03);
-      transform.scale.set(width * 0.14, 0.65, 0.05);
-      transform.updateMatrix();
-      this.windowMesh.setMatrixAt(index * 24 + w, transform.matrix);
+      t.position.set(x + ((w % 3) - 1) * width * 0.27, 2 + Math.floor(w / 3) * (height - 5) / 8, z + depth * 0.5 + 0.03);
+      t.scale.set(width * 0.14, 0.65, 0.05); t.updateMatrix();
+      this.windowMesh.setMatrixAt(index * 24 + w, t.matrix);
     }
-    this.windowMesh.instanceMatrix.needsUpdate = true;
+    for (const mesh of [this.cityBodies, this.cityStrips, this.cityBeacons, this.windowMesh]) mesh.instanceMatrix.needsUpdate = true;
+  }
+
+  public setQuality(quality: 'low' | 'medium' | 'high') {
+    this.quality = quality;
+    const towers = quality === 'low' ? 16 : quality === 'medium' ? 28 : 44;
+    for (const mesh of [this.cityBodies, this.cityStrips, this.cityBeacons]) mesh.count = towers;
+    this.windowMesh.count = towers * 24;
+    this.detailedObjects.forEach(object => { object.visible = quality !== 'low'; });
+    this.trafficCars.forEach((car, i) => { car.mesh.visible = quality === 'high' || quality === 'medium' && i < 4; });
+    this.zoneScenery?.setQuality(quality);
   }
 
   private buildHoverTraffic() {
@@ -483,6 +475,8 @@ export class EnvironmentManager {
     this.rimLight.position.z = playerZ - 12;
     this.rimLight.target.position.z = playerZ;
 
+    this.zoneScenery.update(playerZ);
+
     // 1. Recycle Track Segments seamlessly
     const activeDistance = this.segmentLength * this.numSegments;
     for (const segment of this.trackSegments) {
@@ -494,7 +488,7 @@ export class EnvironmentManager {
     // 2. Recycle City Towers
     for (const child of this.cityGroup.children) {
       if (child.position.z > playerZ + 30) {
-        child.position.z -= 240;
+        while (child.position.z > playerZ + 30) child.position.z -= 240;
         this.placeWindows(child);
       }
     }
@@ -515,7 +509,7 @@ export class EnvironmentManager {
 
     // 5. Animate Holographic Billboards (pulsating borders & scanlines)
     this.billboardTimer += dt;
-    const refreshBillboards = this.billboardTimer >= .1;
+    const refreshBillboards = this.quality !== 'low' && this.billboardTimer >= (this.quality === 'high' ? 1 / 6 : 1 / 3);
     if (refreshBillboards) this.billboardTimer = 0;
     for (let b = 0; refreshBillboards && b < this.billboardCanvases.length; b++) {
       const { ctx, texture, meme } = this.billboardCanvases[b];
@@ -575,6 +569,7 @@ export class EnvironmentManager {
 
   public setTheme(theme: EnvironmentThemes) {
     this.targetTheme = theme;
+    this.zoneScenery.setZone(theme === THEME_SYNTHWAVE ? 1 : theme === THEME_QUANTUM_MATRIX ? 2 : theme === THEME_CYBER_GOLD ? 3 : 0);
     this.targetFog.setHex(theme.fogColor);
     this.targetSky.setHex(theme.ambientSky);
     this.targetGround.setHex(theme.ambientGround);
@@ -589,6 +584,7 @@ export class EnvironmentManager {
   }
 
   public reset() {
+    this.zoneScenery.reset();
     for (const object of this.trackSegments) object.position.z = object.userData.initialZ;
     for (const object of this.cityGroup.children) {
       object.position.z = object.userData.initialZ;

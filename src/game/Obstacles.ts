@@ -1,3 +1,4 @@
+import { DRONE_HEIGHT } from './physics';
 import * as THREE from 'three';
 import { Lane, LANE_POSITIONS, ObstacleInstance, ObstacleType } from '../types/game';
 
@@ -215,7 +216,7 @@ export class ObstacleManager {
       debug.visible = this.debugHitboxesEnabled;
 
       group.add(body, ring, eye, cone, debug);
-      group.position.y = 1.6;
+      group.position.y = DRONE_HEIGHT;
     }
 
     return group;
@@ -242,7 +243,7 @@ export class ObstacleManager {
     const x = LANE_POSITIONS[lane];
 
     if (type === 'MOVING_DRONE' || moving) {
-      mesh.position.set(x, 1.6, z);
+      mesh.position.set(x, DRONE_HEIGHT, z);
     } else {
       mesh.position.set(x, 0, z);
     }
@@ -276,7 +277,7 @@ export class ObstacleManager {
 
       if (!mesh) continue;
 
-      if (obs.type === 'MOVING_DRONE' || chaosMovingBarriers) {
+      if (obs.type === 'MOVING_DRONE') {
         mesh.position.x += (obs.moveDirection || 1) * (obs.moveSpeed || 2.4) * dt;
         if (mesh.position.x > 2.4) {
           mesh.position.x = 2.4;
@@ -287,9 +288,19 @@ export class ObstacleManager {
         }
 
         if (obs.type === 'MOVING_DRONE') {
-          mesh.position.y = 1.6 + Math.sin(time * 6 + obs.id) * 0.25;
+          mesh.position.y = DRONE_HEIGHT + Math.sin(time * 6 + obs.id) * 0.25;
           mesh.rotation.y += dt * 3;
         }
+      }
+
+      if (obs.type !== 'MOVING_DRONE') {
+        // Drift stays inside the authored lane. An open adjacent lane retains
+        // at least 2.4 - 0.65 = 1.75 units of clearance (> 1.35 collision reach).
+        const home = LANE_POSITIONS[obs.initialLane ?? obs.lane];
+        const target = chaosMovingBarriers
+          ? THREE.MathUtils.clamp(home + Math.sin(time * (obs.moveSpeed || 2.4) + obs.id) * 0.65, -2.4, 2.4)
+          : home;
+        mesh.position.x = THREE.MathUtils.damp(mesh.position.x, target, 10, dt);
       }
 
       // Cleanup obstacles passed behind player -> Return to free pool

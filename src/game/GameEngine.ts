@@ -1,5 +1,5 @@
 import { integrateJump, integrateLane, JUMP_SPEED, JUMP_GRAVITY, LOW_GRAVITY_JUMP_SPEED, LOW_GRAVITY, SLIDE_SECONDS } from './physics';
-import { challengeAtDistance, makeChallengePattern, MAX_RUN_SPEED, COMPOUND_GATE_SECONDS, chooseChallengePattern, encounterSpacing } from './challenges';
+import { challengeAtDistance, makeChallengePattern, MAX_RUN_SPEED, COMPOUND_GATE_SECONDS, chooseChallengePattern, encounterSpacing, bossLeadDistance } from './challenges';
 import { RunnerCamera } from './RunnerCamera';
 import { hitsObstacle } from '../utils/mechanics';
 import { storage } from '../utils/storage';
@@ -220,7 +220,7 @@ export class GameEngine {
 
     const isHeadless = navigator.webdriver || /HeadlessChrome/i.test(navigator.userAgent);
     this.renderer = new THREE.WebGLRenderer({
-      antialias: this.quality !== 'low',
+      antialias: false,
       powerPreference: 'high-performance',
       alpha: false,
       stencil: false,
@@ -259,6 +259,8 @@ export class GameEngine {
     this.obstacles = new ObstacleManager(this.scene);
     this.collectibles = new CollectibleManager(this.scene);
     this.particles = new ParticleSystem(this.scene);
+    this.environment.setQuality(this.quality);
+    this.particles.setQuality(this.quality);
     this.boss = new BossEncounterManager(this.scene);
 
     this.renderer.compile(this.scene, this.camera);
@@ -340,6 +342,8 @@ export class GameEngine {
 
   public setQuality(quality: GraphicsQuality) {
     this.quality = quality;
+    this.environment.setQuality(quality);
+    this.particles.setQuality(quality);
     storage.setItem('brainrot_quality', quality);
 
     const isHeadless = navigator.webdriver || /HeadlessChrome/i.test(navigator.userAgent);
@@ -386,7 +390,7 @@ export class GameEngine {
     if (this.isTutorial || this.boss.state.active) return;
 
     // Forecast the fastest tier that this pattern can cross, including recovery.
-    const forecastDistance = -this.spawnCursorZ + MAX_RUN_SPEED * (COMPOUND_GATE_SECONDS * 2 + 1.05);
+    const forecastDistance = -this.spawnCursorZ + MAX_RUN_SPEED * (COMPOUND_GATE_SECONDS * 3 + 1.05);
     const patternSpeed = challengeAtDistance(forecastDistance).speed;
     const profile = challengeAtDistance(-this.spawnCursorZ);
     const spacing = encounterSpacing(patternSpeed, profile.level);
@@ -547,11 +551,11 @@ export class GameEngine {
       accentColor = '#38bdf8';
     } else if (type === 'TURBO_SPEED') {
       name = 'ALGORITHM OVERCLOCK';
-      description = 'HYPER-SPEED ENGAGED: 1.4x Forward Velocity!';
+      description = 'HYPER-SPEED ENGAGED: 1.35x Forward Velocity!';
       accentColor = '#ef4444';
     } else if (type === 'MOVING_BARRIERS') {
       name = 'GLITCH DRIFT';
-      description = 'BARRIERS OSCILLATING ACROSS LANES!';
+      description = 'BARRIERS DRIFT · OPEN LANES STAY CLEAR';
       accentColor = '#f59e0b';
     } else if (type === 'COLOR_SHIFT') {
       name = 'HYPERSPACE SHIFT';
@@ -595,6 +599,7 @@ export class GameEngine {
       accentColor: '#06b6d4',
     };
     this.chaosTimer = 19 + this.getRandom() * 6;
+    this.postChaosSafeTimer = 2;
     this.callbacks.onChaosUpdate({ ...this.chaosState });
   }
 
@@ -614,15 +619,18 @@ export class GameEngine {
     this.isRunning = false;
 
     let lastTime = performance.now();
+    let pendingTime = 0;
     const showcaseLoop = (time: number) => {
       if (!this.isMenuMode) return;
       this.animFrameId = requestAnimationFrame(showcaseLoop);
 
       const rawDt = (time - lastTime) / 1000;
       lastTime = time;
-      const dt = Math.min(rawDt, 0.05);
-
-      if (document.hidden || this.studioOpen) return;
+      if (document.hidden || this.studioOpen) { pendingTime = 0; return; }
+      pendingTime += rawDt;
+      if (pendingTime < 1 / 30) return;
+      const dt = Math.min(pendingTime, 0.1);
+      pendingTime = 0;
       this.globalTime += dt;
       this.character.animate(dt, 'IDLE', 1.0, 0, this.globalTime);
 
@@ -674,6 +682,8 @@ export class GameEngine {
           this.renderer.setPixelRatio(Math.max(0.75, this.renderer.getPixelRatio() - 0.25));
           this.renderer.shadowMap.enabled = false;
           this.character.setShadowsEnabled(false);
+          this.environment.setQuality('low');
+          this.particles.setQuality('low');
         }
         this.adaptiveTime = 0;
         this.adaptiveFrames = 0;
@@ -906,6 +916,7 @@ export class GameEngine {
 
     // Update Boss Battle
     if (this.boss.state.active) {
+      const warningDistance = bossLeadDistance(this.distanceTraveled, speedMult);
       this.boss.update(
         dt,
         this.playerZ,
@@ -913,6 +924,7 @@ export class GameEngine {
         () => {
           // Boss Defeated!
           this.bossDefeatedCount++;
+          this.obstacles.clear(); // No old attack may accelerate into the post-boss reward boost.
           // High-speed bosses can travel farther than their nominal interval.
           // Always reserve a normal-play recovery section after a victory.
           this.nextBossTriggerDistance = this.distanceTraveled + Math.max(320, 600 - (challengeAtDistance(this.distanceTraveled).level - 1) * 25);
@@ -929,10 +941,11 @@ export class GameEngine {
           this.obstacles.spawnObstacle(
             type,
             lane,
-            this.playerZ - Math.max(36, this.currentSpeed * 2),
+            this.playerZ - warningDistance,
           );
         },
         this.bossRandom,
+        warningDistance,
       );
       if (publishHUD) this.callbacks.onBossUpdate?.({ ...this.boss.state });
     } else if (publishHUD) {

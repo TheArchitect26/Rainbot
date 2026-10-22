@@ -5,6 +5,8 @@ export const LOW_GRAVITY_JUMP_SPEED = 10.5;
 export const LOW_GRAVITY = 24;
 export const FALL_MULTIPLIER = 1.35;
 export const SLIDE_SECONDS = 0.55;
+export const SLIDE_COLLISION_HEIGHT = 0.95;
+export const DRONE_HEIGHT = 2.2;
 
 /** Exact integration, including an apex crossed during this step. */
 export function integrateJump(y: number, velocity: number, gravity: number, dt: number) {

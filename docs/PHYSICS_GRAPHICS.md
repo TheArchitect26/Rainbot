@@ -31,3 +31,8 @@ No new local APK was compiled in this workspace: JDK/Android SDK tools are absen
 6. Compare low/medium/high quality for ten minutes, recording stutter, FPS, heat and battery drain. Check road glow, character visibility, grounded shadows and lighting after a long run. Record phone model, Android/WebView version, quality, commit, reproduction steps, video and exported diagnostics for any issue.
 
 Real-phone balance, touch latency, thermals and sustained FPS still need retesting. Release signing, release-mode verification and store publication remain separate.
+
+
+## Audit follow-up
+
+The audit-driven follow-up supersedes the alternating-gate schedule and earlier character pose, HUD and rendering details above. See [AUDIT_FIXES.md](AUDIT_FIXES.md) for the current rules (`challenge-4`), Android version 0.2.0/code 2 and validation. Gates now use seeded action choices and additional authored sequences; older ranking rules remain separate.

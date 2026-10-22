@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
@@ -5,7 +6,16 @@ import { defineConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig(() => {
+  let commit = process.env.GITHUB_SHA || 'local';
+  if (commit === 'local') {
+    try { commit = execFileSync('git', ['rev-parse', '--short=8', 'HEAD'], { encoding: 'utf8' }).trim(); } catch { /* source archives can build without Git */ }
+  }
   return {
+    define: {
+      __APP_VERSION__: JSON.stringify('0.2.0'),
+      __BUILD_COMMIT__: JSON.stringify(commit.slice(0, 8)),
+      __BUILD_TARGET__: JSON.stringify(process.env.CAPACITOR_BUILD === 'true' ? 'android' : 'web'),
+    },
     base: './',
 
     plugins: [

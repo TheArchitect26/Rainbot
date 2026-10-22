@@ -1,6 +1,6 @@
 import type { Lane, ObstacleType } from '../types/game';
 
-export const RULES_VERSION = 'challenge-3';
+export const RULES_VERSION = 'challenge-4';
 export const LEVEL_DISTANCE = 150;
 export const MAX_CHALLENGE_LEVEL = 12;
 export const MAX_RUN_SPEED = 36 * 1.45 * 1.35;
@@ -47,35 +47,35 @@ export const CHALLENGES = [
     name: 'Switch Rhythm',
     skill: 'Time alternating jump and slide gates',
     speed: 25.5,
-    patterns: ['SLALOM', 'DRONE', 'RHYTHM', 'MIXED_GATE'],
+    patterns: ['SLALOM', 'DRONE', 'RHYTHM', 'MIXED_GATE', 'WEAVE', 'GAUNTLET'],
   },
   {
     level: 7,
     name: 'Cross Traffic',
     skill: 'Chain adjacent safe lanes',
     speed: 27,
-    patterns: ['SLALOM', 'DRONE', 'RHYTHM', 'MIXED_GATE'],
+    patterns: ['SLALOM', 'DRONE', 'RHYTHM', 'MIXED_GATE', 'WEAVE', 'GAUNTLET'],
   },
   {
     level: 8,
     name: 'Pressure Test',
     skill: 'Keep your rhythm through boss pressure',
     speed: 28.5,
-    patterns: ['SLALOM', 'DRONE', 'RHYTHM', 'JUMP_GATE', 'MIXED_GATE'],
+    patterns: ['SLALOM', 'DRONE', 'RHYTHM', 'JUMP_GATE', 'MIXED_GATE', 'WEAVE', 'GAUNTLET'],
   },
   {
     level: 9,
     name: 'Signal Storm',
     skill: 'Read warnings before committing',
     speed: 30,
-    patterns: ['SLALOM', 'DRONE', 'RHYTHM', 'SLIDE_GATE', 'MIXED_GATE'],
+    patterns: ['SLALOM', 'DRONE', 'RHYTHM', 'SLIDE_GATE', 'MIXED_GATE', 'WEAVE', 'GAUNTLET'],
   },
   {
     level: 10,
     name: 'Overclock',
     skill: 'Combine precise movement and timing',
     speed: 32,
-    patterns: ['SLALOM', 'DRONE', 'RHYTHM', 'MIXED_GATE'],
+    patterns: ['SLALOM', 'DRONE', 'RHYTHM', 'MIXED_GATE', 'WEAVE', 'GAUNTLET'],
   },
   {
     level: 11,
@@ -89,6 +89,8 @@ export const CHALLENGES = [
       'JUMP_GATE',
       'SLIDE_GATE',
       'MIXED_GATE',
+      'WEAVE',
+      'GAUNTLET',
     ],
   },
   {
@@ -103,6 +105,8 @@ export const CHALLENGES = [
       'JUMP_GATE',
       'SLIDE_GATE',
       'MIXED_GATE',
+      'WEAVE',
+      'GAUNTLET',
     ],
   },
 ] as const;
@@ -136,9 +140,9 @@ export function makeChallengePattern(
       1.35 *
       (pattern === 'SLALOM' ? SLALOM_REACTION_SECONDS : COMPOUND_GATE_SECONDS),
   );
-  if (pattern === 'SLALOM') {
+  if (pattern === 'SLALOM' || pattern === 'WEAVE') {
     const second = (lane === 0 ? (random() < 0.5 ? -1 : 1) : 0) as Lane;
-    return [lane, second].map((safeLane, i) => ({
+    return (pattern === 'WEAVE' ? [lane, second, lane] : [lane, second]).map((safeLane, i) => ({
       offset: gap * i,
       safeLane,
       hazards: LANES.filter((l) => l !== safeLane).map((l) => ({
@@ -146,6 +150,13 @@ export function makeChallengePattern(
         type: 'FULL_BLOCK',
       })),
     }));
+  }
+  if (pattern === 'GAUNTLET') {
+    return [
+      { offset: 0, hazards: LANES.map(lane => ({ lane, type: 'LOW_BARRIER' as ObstacleType })) },
+      { offset: gap, safeLane: lane, hazards: LANES.filter(l => l !== lane).map(lane => ({ lane, type: 'FULL_BLOCK' as ObstacleType })) },
+      { offset: gap * 2, hazards: LANES.map(lane => ({ lane, type: 'HIGH_BARRIER' as ObstacleType })) },
+    ];
   }
   if (pattern === 'MIXED_GATE') {
     const shift = lane + 1;
@@ -182,10 +193,10 @@ export function makeChallengePattern(
   }));
 }
 
-/** Every third encounter demands an action, so camping in a lane cannot bypass a run.
+/** Every third encounter demands a seeded jump or slide action, so camping in a lane cannot bypass a run.
  * Random choice remains seeded; early training is handled separately by the engine. */
 export function chooseChallengePattern(distance: number, encounter: number, random: () => number): ChallengePattern {
-  if (encounter % 3 === 2) return Math.floor(encounter / 3) % 2 === 0 ? 'JUMP_GATE' : 'SLIDE_GATE';
+  if (encounter % 3 === 2) return random() < 0.5 ? 'JUMP_GATE' : 'SLIDE_GATE';
   const pool = challengeAtDistance(distance).patterns;
   return pool[Math.min(pool.length - 1, Math.floor(random() * pool.length))];
 }
@@ -193,4 +204,10 @@ export function chooseChallengePattern(distance: number, encounter: number, rand
 export function encounterSpacing(speed: number, level: number) {
   // Reserve input time even with both speed modifiers; pressure rises with tiers.
   return speed * 1.45 * 1.35 * Math.max(0.72, 1.05 - (level - 1) * 0.03);
+}
+
+/** Conservative two-second collision warning across tier changes and boosts. */
+export function bossLeadDistance(distance: number, multiplier: number) {
+  const forecast = challengeAtDistance(distance + MAX_RUN_SPEED * 2.1).speed;
+  return Math.max(36, forecast * multiplier * 2 + 0.75);
 }

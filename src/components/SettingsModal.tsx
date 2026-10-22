@@ -1,3 +1,4 @@
+import { BUILD_INFO } from '../utils/buildInfo';
 import React, { useState } from 'react';
 import { X, Volume2, VolumeX, Smartphone, Eye, Sparkles, Download, Check, Shield } from 'lucide-react';
 import { GraphicsQuality } from '../game/GameEngine';
@@ -227,6 +228,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           )}
         </div>
 
+        <p className="mt-2 text-[10px] text-neutral-400 font-mono" aria-label="Build information">v{BUILD_INFO.version} · {BUILD_INFO.commit} · {BUILD_INFO.target}</p>
         {/* iOS Install Guide Modal */}
         {showIOSGuide && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">

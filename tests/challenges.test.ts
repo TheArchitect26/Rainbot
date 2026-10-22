@@ -63,7 +63,7 @@ test('seeded challenge patterns repeat and retain a route or an achievable timed
                 : COMPOUND_GATE_SECONDS) -
                 1e-10,
           );
-          if (row.safeLane !== undefined)
+          if (row.safeLane !== undefined && rows[i - 1].safeLane !== undefined)
             assert.ok(Math.abs(row.safeLane - rows[i - 1].safeLane!) <= 1);
         }
       });

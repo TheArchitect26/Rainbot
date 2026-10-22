@@ -30,7 +30,8 @@ test('jump, slide and drone vertical clearance', () => {
   assert.equal(hitsObstacle('LOW_BARRIER', 0, -1, 0, -1, 0.5, false), true);
   assert.equal(hitsObstacle('HIGH_BARRIER', 0, -1, 0, -1, 0, true), false);
   assert.equal(hitsObstacle('HIGH_BARRIER', 0, -1, 0, -1, 1, true), true);
-  assert.equal(hitsObstacle('MOVING_DRONE', 0, -1, 0, -1, 0, true, 1.6), false);
+  assert.equal(hitsObstacle('MOVING_DRONE', 0, -1, 0, -1, 0, true, 2.2), false);
+  assert.equal(hitsObstacle('MOVING_DRONE', 0, -1, 0, -1, 0, true, 1.6), true);
   assert.equal(hitsObstacle('FULL_BLOCK', 0, -1, 0, -1, 5, false), true);
 });
 test('progression repairs unsafe saves and awards every crossed milestone level', () => {

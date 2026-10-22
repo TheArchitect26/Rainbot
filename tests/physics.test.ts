@@ -47,13 +47,13 @@ test('lane spring settles promptly without overshooting and handles a reversal',
   assert.ok(x < -2.39);
 });
 
-test('camping cannot avoid mandatory alternating gates at any challenge tier or RNG extreme', () => {
+test('camping cannot avoid mandatory seeded gates at any challenge tier or RNG extreme', () => {
   for (const distance of [0, 149, 150, 600, 1650, 100000])
     for (const random of [() => 0, () => 0.99999]) {
       const sequence = Array.from({ length: 60 }, (_, i) => chooseChallengePattern(distance, i, random));
       for (let i = 0; i < sequence.length; i += 6) {
-        assert.equal(sequence[i + 2], 'JUMP_GATE');
-        assert.equal(sequence[i + 5], 'SLIDE_GATE');
+        assert.ok(['JUMP_GATE', 'SLIDE_GATE'].includes(sequence[i + 2]));
+        assert.ok(['JUMP_GATE', 'SLIDE_GATE'].includes(sequence[i + 5]));
       }
     }
 });

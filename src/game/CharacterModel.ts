@@ -1,3 +1,4 @@
+import { SLIDE_COLLISION_HEIGHT } from './physics';
 import { StreetAvatar } from './StreetAvatar';
 import { finishMaterial } from '../utils/skinStudio';
 import type { Skin } from '../types/game';
@@ -477,6 +478,14 @@ export class CharacterModel {
     globalTime: number,
     verticalVelocity = 0
   ) {
+    // The menu shows the face; gameplay faces the direction of forward travel.
+    this.group.rotation.y = status === 'IDLE' ? 0 : Math.PI;
+    this.leftLegGroup.position.y = status === 'SLIDE' ? 0.26 : 0.65;
+    this.rightLegGroup.position.y = status === 'SLIDE' ? 0.26 : 0.65;
+    this.headGroup.rotation.y = 0;
+    this.leftArmGroup.rotation.z = 0;
+    this.rightArmGroup.rotation.z = 0;
+
     // 1. Natural Blinking & Expression update
     const wasBlinking = this.isBlinking;
     this.blinkTimer += dt;
@@ -558,11 +567,13 @@ export class CharacterModel {
     if (status === 'SLIDE') {
       this.dizzyStarsGroup.visible = false;
       // Low speed-skate slide pose
-      this.torsoGroup.position.y = THREE.MathUtils.damp(this.torsoGroup.position.y, 0.4, 20, dt);
-      this.torsoGroup.rotation.x = THREE.MathUtils.damp(this.torsoGroup.rotation.x, -0.72, 20, dt);
-      this.headGroup.rotation.x = 0.55; // looks forward while sliding
-      this.leftArmGroup.rotation.x = -1.4;
-      this.rightArmGroup.rotation.x = -1.4;
+      // A genuine low tuck: the head stays below the overhead laser at 1.3.
+      // Apply the clearance pose immediately, matching accepted slide input.
+      this.torsoGroup.position.y = 0.15;
+      this.torsoGroup.rotation.x = 1.38;
+      this.headGroup.rotation.x = -0.85;
+      this.leftArmGroup.rotation.x = -0.6;
+      this.rightArmGroup.rotation.x = -0.6;
       this.leftLegGroup.rotation.x = 1.35;
       this.rightLegGroup.rotation.x = 1.2;
       this.shadowDisk.scale.set(1.4, 1.4, 1.4);
@@ -651,8 +662,8 @@ export class CharacterModel {
     box.visible = enabled;
     if (enabled) {
       if (isSliding) {
-        box.scale.set(1 / this.group.scale.x, .45 / 1.75 / this.group.scale.y, 1 / this.group.scale.z);
-        box.position.set(0, .225 / this.group.scale.y, 0);
+        box.scale.set(1 / this.group.scale.x, SLIDE_COLLISION_HEIGHT / 1.75 / this.group.scale.y, 1 / this.group.scale.z);
+        box.position.set(0, (SLIDE_COLLISION_HEIGHT / 2) / this.group.scale.y, 0);
       } else {
         box.scale.set(1 / this.group.scale.x, 1 / this.group.scale.y, 1 / this.group.scale.z);
         box.position.set(0, .875 / this.group.scale.y, 0);

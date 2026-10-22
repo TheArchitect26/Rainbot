@@ -20,7 +20,7 @@ npm run build
 SERVE_WEB=true LEADERBOARD_DB=./data/leaderboard.sqlite npm run leaderboard:serve
 ```
 
-Internally check `http://127.0.0.1:8787/api/leaderboard/health`, then load the game from that same server to exercise the production web bundle. Health should return `ok: true` and rules `challenge-3`. This is a local development endpoint, not a public deployment.
+Internally check `http://127.0.0.1:8787/api/leaderboard/health`, then load the game from that same server to exercise the production web bundle. Health should return `ok: true` and rules `challenge-4`. This is a local development endpoint, not a public deployment.
 
 For Vite development, run the service and `npm run dev` in separate terminals. Vite proxies `/api/leaderboard` to port 8787. Allow the exact development origin if your proxy rewrites Host:
 
