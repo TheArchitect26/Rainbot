@@ -1,3 +1,4 @@
+import { ZoneScenery } from './ZoneScenery';
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 
@@ -78,8 +79,19 @@ export class EnvironmentManager {
   private segmentLength = 36;
   private trackGroup: THREE.Group;
   private cityGroup: THREE.Group;
+  private cityBodies!: THREE.InstancedMesh;
+  private cityStrips!: THREE.InstancedMesh;
+  private cityBeacons!: THREE.InstancedMesh;
+  private zoneScenery: ZoneScenery;
+  private quality: 'low' | 'medium' | 'high' = 'medium';
+  private detailedObjects: THREE.Object3D[] = [];
+  private windowMesh!: THREE.InstancedMesh;
+  private readonly windowTransform = new THREE.Object3D();
+  private rimLight: THREE.DirectionalLight;
   private trafficCars: HoverTrafficCar[] = [];
   private retroSunGroup: THREE.Group;
+  private skyDome: THREE.Mesh;
+  private railGlowMaterials: THREE.MeshBasicMaterial[] = [];
   private sunMaterial: THREE.MeshBasicMaterial;
 
   private billboardCanvases: { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D; texture: THREE.CanvasTexture; meme: any }[] = [];
@@ -102,6 +114,7 @@ export class EnvironmentManager {
     const room = new RoomEnvironment();
     this.reflection = pmremGenerator.fromScene(room, 0.04);
     scene.environment = this.reflection.texture;
+    scene.environmentIntensity = 0.55;
     room.dispose();
     pmremGenerator.dispose();
 
@@ -109,6 +122,21 @@ export class EnvironmentManager {
     this.fog = new THREE.Fog(THEME_DEFAULT.fogColor, 40, 135);
     this.scene.fog = this.fog;
     this.scene.background = new THREE.Color(THEME_DEFAULT.fogColor);
+    this.skyDome = new THREE.Mesh(new THREE.SphereGeometry(180, 24, 12), new THREE.ShaderMaterial({
+      uniforms: { horizon: { value: this.fog.color } },
+      vertexShader: 'varying float elevation; void main(){ elevation = normalize(position).y; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+      fragmentShader: `uniform vec3 horizon; varying float elevation;
+        void main(){
+          float glow = pow(1.0 - abs(elevation), 8.0);
+          vec3 color = mix(vec3(0.004, 0.006, 0.018), horizon * 2.8 + vec3(0.025, 0.02, 0.045), glow);
+          gl_FragColor = vec4(color, 1.0);
+          #include <tonemapping_fragment>
+          #include <colorspace_fragment>
+        }`,
+      side: THREE.BackSide, depthWrite: false,
+    }));
+    this.skyDome.renderOrder = -100;
+    this.scene.add(this.skyDome);
 
     // 3. Balanced Warm/Cool Studio Lighting
     this.hemiLight = new THREE.HemisphereLight(
@@ -131,7 +159,11 @@ export class EnvironmentManager {
     this.dirLight.shadow.camera.bottom = -10;
     this.dirLight.shadow.bias = -0.0005;
     this.dirLight.shadow.normalBias = 0.02;
-    this.scene.add(this.dirLight);
+    this.scene.add(this.dirLight, this.dirLight.target);
+    // A shadow-free cool rim separates the runner from the road at every quality.
+    this.rimLight = new THREE.DirectionalLight(0x60a5fa, 1.6);
+    this.rimLight.position.set(-8, 6, -12);
+    this.scene.add(this.rimLight, this.rimLight.target);
 
     // 4. Giant Retro Horizon Sun
     this.retroSunGroup = new THREE.Group();
@@ -157,6 +189,8 @@ export class EnvironmentManager {
     this.buildTrackSegments(renderer);
     this.buildCitySkyline();
     this.buildHoverTraffic();
+    this.zoneScenery = new ZoneScenery(this.scene);
+    this.setQuality('medium');
     for (const object of [...this.trackSegments, ...this.cityGroup.children, ...this.trafficCars.map((c) => c.mesh)]) object.userData.initialZ = object.position.z;
   }
 
@@ -184,6 +218,33 @@ export class EnvironmentManager {
       { title: 'DOPAMINE HIT', sub: 'ATTENTION SPAN: 0.2 SECONDS', color: '#ef4444', badge: 'CRITICAL' },
     ];
 
+    // Small, deterministic tiled asphalt; no network textures or post-processing.
+    const asphalt = document.createElement('canvas');
+    asphalt.width = asphalt.height = 128;
+    const asphaltContext = asphalt.getContext('2d')!;
+    const pixels = asphaltContext.createImageData(128, 128);
+    for (let i = 0; i < 128 * 128; i++) {
+      const grain = 175 + ((i * 73 ^ (i >> 3) * 19) % 55);
+      pixels.data.set([grain, grain, grain, 255], i * 4);
+    }
+    asphaltContext.putImageData(pixels, 0, 0);
+    const roadTexture = new THREE.CanvasTexture(asphalt);
+    roadTexture.wrapS = roadTexture.wrapT = THREE.RepeatWrapping;
+    roadTexture.repeat.set(3, 12);
+    roadTexture.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
+    roadTexture.colorSpace = THREE.SRGBColorSpace;
+
+    // Baked lateral glow gives neon road spill without extra lights or bloom passes.
+    const glowCanvas = document.createElement('canvas');
+    glowCanvas.width = 64; glowCanvas.height = 4;
+    const glowContext = glowCanvas.getContext('2d')!;
+    const gradient = glowContext.createLinearGradient(0, 0, 64, 0);
+    gradient.addColorStop(0, 'rgba(255,255,255,0)');
+    gradient.addColorStop(0.5, 'rgba(255,255,255,0.45)');
+    gradient.addColorStop(1, 'rgba(255,255,255,0)');
+    glowContext.fillStyle = gradient; glowContext.fillRect(0, 0, 64, 4);
+    const glowTexture = new THREE.CanvasTexture(glowCanvas);
+
     for (let i = 0; i < this.numSegments; i++) {
       const segment = new THREE.Group();
       const zOffset = -i * this.segmentLength;
@@ -194,8 +255,9 @@ export class EnvironmentManager {
       roadGeo.rotateX(-Math.PI / 2);
       const roadMat = new THREE.MeshStandardMaterial({
         color: this.currentTheme.groundColor,
-        roughness: 0.35,
-        metalness: 0.75,
+        map: roadTexture,
+        roughness: 0.58,
+        metalness: 0.32,
       });
       this.roadMaterials.push(roadMat);
       const road = new THREE.Mesh(roadGeo, roadMat);
@@ -242,6 +304,19 @@ export class EnvironmentManager {
       const rightGlow = new THREE.Mesh(railGlowGeo, railGlowMat);
       rightGlow.position.set(4.28, 0.48, 0);
       segment.add(leftGlow, rightGlow);
+      this.railGlowMaterials.push(railGlowMat);
+      const spillGeometry = new THREE.PlaneGeometry(1.8, this.segmentLength);
+      spillGeometry.rotateX(-Math.PI / 2);
+      const spillMaterial = new THREE.MeshBasicMaterial({ map: glowTexture,
+        color: this.currentTheme.neonMagenta, transparent: true, opacity: 0.5,
+        blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
+      this.railGlowMaterials.push(spillMaterial);
+      for (const side of [-1, 1]) {
+        const spill = new THREE.Mesh(spillGeometry, spillMaterial);
+        spill.position.set(side * 3.85, 0.012, 0);
+        segment.add(spill);
+        this.detailedObjects.push(spill);
+      }
 
       // Holographic Archway over every 2nd segment
       if (i % 2 === 1) {
@@ -249,6 +324,7 @@ export class EnvironmentManager {
         const arch = this.createArchway(memes[memeIdx]);
         arch.position.set(0, 0, 0);
         segment.add(arch);
+        this.detailedObjects.push(arch);
       }
 
       this.trackSegments.push(segment);
@@ -304,48 +380,57 @@ export class EnvironmentManager {
   }
 
   private buildCitySkyline() {
-    const buildingGeo = new THREE.BoxGeometry(1, 1, 1);
-    const darkBuildingMat = new THREE.MeshStandardMaterial({
-      color: 0x070716,
-      metalness: 0.85,
-      roughness: 0.25,
-    });
-
-    const glowWindowMat = new THREE.MeshBasicMaterial({ color: 0x06b6d4 });
-    const pinkWindowMat = new THREE.MeshBasicMaterial({ color: 0xec4899 });
-    const goldWindowMat = new THREE.MeshBasicMaterial({ color: 0xfacc15 });
-
-    // 44 cyber towers placed outside track borders
+    const box = new THREE.BoxGeometry(1, 1, 1);
+    this.cityBodies = new THREE.InstancedMesh(box, new THREE.MeshStandardMaterial({ color: 0x101323, roughness: 0.65, metalness: 0.25 }), 44);
+    this.cityStrips = new THREE.InstancedMesh(box, new THREE.MeshBasicMaterial({ color: 0xffffff }), 44);
+    this.cityBeacons = new THREE.InstancedMesh(box, new THREE.MeshBasicMaterial({ color: 0xffffff }), 44);
+    this.windowMesh = new THREE.InstancedMesh(box, new THREE.MeshBasicMaterial({ color: 0xffffff }), 44 * 24);
+    for (const mesh of [this.cityBodies, this.cityStrips, this.cityBeacons, this.windowMesh]) {
+      mesh.frustumCulled = false;
+      this.scene.add(mesh);
+    }
+    const color = new THREE.Color();
     for (let i = 0; i < 44; i++) {
       const building = new THREE.Group();
-      const isLeft = i % 2 === 0;
-      const x = (isLeft ? -1 : 1) * (11 + Math.random() * 26);
-      const z = -Math.random() * 240;
       const height = 18 + Math.random() * 42;
-      const width = 5 + Math.random() * 8;
-      const depth = 5 + Math.random() * 8;
-
-      const mainBlock = new THREE.Mesh(buildingGeo, darkBuildingMat);
-      mainBlock.scale.set(width, height, depth);
-      mainBlock.position.y = height / 2 - 2;
-      building.add(mainBlock);
-
-      // Colored corner neon strip
-      const stripMat = i % 3 === 0 ? pinkWindowMat : i % 3 === 1 ? glowWindowMat : goldWindowMat;
-      const strip = new THREE.Mesh(buildingGeo, stripMat);
-      strip.scale.set(0.18, height * 0.85, 0.18);
-      strip.position.set(width * 0.48, height * 0.5, depth * 0.48);
-      building.add(strip);
-
-      // Rooftop antenna beacon
-      const beaconGeo = new THREE.CylinderGeometry(0.08, 0.08, 5, 4);
-      const beacon = new THREE.Mesh(beaconGeo, stripMat);
-      beacon.position.set(0, height, 0);
-      building.add(beacon);
-
-      building.position.set(x, 0, z);
+      const width = 5 + Math.random() * 8, depth = 5 + Math.random() * 8;
+      building.position.set((i % 2 ? 1 : -1) * (14 + Math.random() * 26), 0, -Math.random() * 240);
+      Object.assign(building.userData, { windowIndex: i, windowWidth: width, windowDepth: depth, windowHeight: height });
       this.cityGroup.add(building);
+      this.placeWindows(building);
+      color.setHex(i % 3 === 0 ? 0x9363b8 : 0x3f8d9c);
+      this.cityStrips.setColorAt(i, color);
+      this.cityBeacons.setColorAt(i, color);
+      for (let w = 0; w < 24; w++)
+        this.windowMesh.setColorAt(i * 24 + w, color.setHex(w % 5 === 0 ? 0xd0a777 : i % 2 ? 0x3787ad : 0x735b9e));
     }
+  }
+
+  private placeWindows(building: THREE.Object3D) {
+    const { windowIndex: index, windowWidth: width, windowDepth: depth, windowHeight: height } = building.userData;
+    const t = this.windowTransform, x = building.position.x, z = building.position.z;
+    t.position.set(x, height / 2 - 2, z); t.scale.set(width, height, depth); t.updateMatrix();
+    this.cityBodies.setMatrixAt(index, t.matrix);
+    t.position.set(x + width * 0.48, height * 0.5, z + depth * 0.48); t.scale.set(0.14, height * 0.85, 0.14); t.updateMatrix();
+    this.cityStrips.setMatrixAt(index, t.matrix);
+    t.position.set(x, height, z); t.scale.set(0.1, 5, 0.1); t.updateMatrix();
+    this.cityBeacons.setMatrixAt(index, t.matrix);
+    for (let w = 0; w < 24; w++) {
+      t.position.set(x + ((w % 3) - 1) * width * 0.27, 2 + Math.floor(w / 3) * (height - 5) / 8, z + depth * 0.5 + 0.03);
+      t.scale.set(width * 0.14, 0.65, 0.05); t.updateMatrix();
+      this.windowMesh.setMatrixAt(index * 24 + w, t.matrix);
+    }
+    for (const mesh of [this.cityBodies, this.cityStrips, this.cityBeacons, this.windowMesh]) mesh.instanceMatrix.needsUpdate = true;
+  }
+
+  public setQuality(quality: 'low' | 'medium' | 'high') {
+    this.quality = quality;
+    const towers = quality === 'low' ? 16 : quality === 'medium' ? 28 : 44;
+    for (const mesh of [this.cityBodies, this.cityStrips, this.cityBeacons]) mesh.count = towers;
+    this.windowMesh.count = towers * 24;
+    this.detailedObjects.forEach(object => { object.visible = quality !== 'low'; });
+    this.trafficCars.forEach((car, i) => { car.mesh.visible = quality === 'high' || quality === 'medium' && i < 4; });
+    this.zoneScenery?.setQuality(quality);
   }
 
   private buildHoverTraffic() {
@@ -384,6 +469,14 @@ export class EnvironmentManager {
   }
 
   public update(playerZ: number, dt: number, globalTime: number) {
+    // Keep illumination and the shadow frustum near the runner throughout long runs.
+    this.dirLight.position.z = playerZ + 14;
+    this.dirLight.target.position.z = playerZ - 12;
+    this.rimLight.position.z = playerZ - 12;
+    this.rimLight.target.position.z = playerZ;
+
+    this.zoneScenery.update(playerZ);
+
     // 1. Recycle Track Segments seamlessly
     const activeDistance = this.segmentLength * this.numSegments;
     for (const segment of this.trackSegments) {
@@ -395,7 +488,8 @@ export class EnvironmentManager {
     // 2. Recycle City Towers
     for (const child of this.cityGroup.children) {
       if (child.position.z > playerZ + 30) {
-        child.position.z -= 240;
+        while (child.position.z > playerZ + 30) child.position.z -= 240;
+        this.placeWindows(child);
       }
     }
 
@@ -411,10 +505,11 @@ export class EnvironmentManager {
 
     // 4. Update Retro Horizon Sun position to follow player forward
     this.retroSunGroup.position.z = playerZ;
+    this.skyDome.position.z = playerZ;
 
     // 5. Animate Holographic Billboards (pulsating borders & scanlines)
     this.billboardTimer += dt;
-    const refreshBillboards = this.billboardTimer >= .1;
+    const refreshBillboards = this.quality !== 'low' && this.billboardTimer >= (this.quality === 'high' ? 1 / 6 : 1 / 3);
     if (refreshBillboards) this.billboardTimer = 0;
     for (let b = 0; refreshBillboards && b < this.billboardCanvases.length; b++) {
       const { ctx, texture, meme } = this.billboardCanvases[b];
@@ -474,6 +569,7 @@ export class EnvironmentManager {
 
   public setTheme(theme: EnvironmentThemes) {
     this.targetTheme = theme;
+    this.zoneScenery.setZone(theme === THEME_SYNTHWAVE ? 1 : theme === THEME_QUANTUM_MATRIX ? 2 : theme === THEME_CYBER_GOLD ? 3 : 0);
     this.targetFog.setHex(theme.fogColor);
     this.targetSky.setHex(theme.ambientSky);
     this.targetGround.setHex(theme.ambientGround);
@@ -481,14 +577,19 @@ export class EnvironmentManager {
     for (const mat of this.laneLineMaterials) {
       mat.color.setHex(theme.neonCyan);
     }
+    for (const mat of this.railGlowMaterials) mat.color.setHex(theme.neonMagenta);
     for (const mat of this.roadMaterials) {
       mat.color.setHex(theme.groundColor);
     }
   }
 
   public reset() {
+    this.zoneScenery.reset();
     for (const object of this.trackSegments) object.position.z = object.userData.initialZ;
-    for (const object of this.cityGroup.children) object.position.z = object.userData.initialZ;
+    for (const object of this.cityGroup.children) {
+      object.position.z = object.userData.initialZ;
+      this.placeWindows(object);
+    }
     for (const car of this.trafficCars) car.mesh.position.z = car.mesh.userData.initialZ;
   }
 

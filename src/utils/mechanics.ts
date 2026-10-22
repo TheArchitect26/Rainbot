@@ -1,3 +1,4 @@
+import { SLIDE_COLLISION_HEIGHT, DRONE_HEIGHT } from '../game/physics';
 import type { ObstacleType } from '../types/game';
 import { getXPRequiredForLevel, type PlayerProgression } from '../types/progression';
 
@@ -10,10 +11,10 @@ export function hitsObstacle(
   playerZ: number,
   y: number,
   sliding: boolean,
-  obstacleY = 1.6,
+  obstacleY = DRONE_HEIGHT,
 ): boolean {
   if (dx >= 1.35 || obstacleZ < playerZ - 0.52 || obstacleZ > previousZ + 0.52) return false;
-  const top = y + (sliding ? 0.45 : 1.75);
+  const top = y + (sliding ? SLIDE_COLLISION_HEIGHT : 1.75);
   if (type === 'LOW_BARRIER') return y < 0.62;
   if (type === 'HIGH_BARRIER') return top > 1.25 && y < 3;
   if (type === 'MOVING_DRONE') return top > obstacleY - 0.75 && y < obstacleY + 0.75;

@@ -16,6 +16,8 @@ interface Particle {
 export class ParticleSystem {
   public points: THREE.Points;
   private maxParticles = 300;
+  private budget = 180;
+  public setQuality(quality: 'low' | 'medium' | 'high') { this.budget = quality === 'low' ? 72 : quality === 'medium' ? 180 : 300; }
   private particles: Particle[] = [];
   private free: Particle[] = Array.from({ length: 300 }, () => ({ x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, life: 0, maxLife: 1, color: new THREE.Color(), size: .3 }));
   private scratchColor = new THREE.Color();
@@ -62,7 +64,7 @@ export class ParticleSystem {
   public emit(x: number, y: number, z: number, count: number, hexColor: number, speed = 4, life = 0.5) {
     const col = this.scratchColor.setHex(hexColor);
     for (let i = 0; i < count; i++) {
-      if (!this.free.length) break;
+      if (!this.free.length || this.particles.length >= this.budget) break;
 
       const theta = Math.random() * Math.PI * 2;
       const phi = Math.random() * Math.PI;
@@ -80,7 +82,7 @@ export class ParticleSystem {
   }
 
   public emitTrail(x: number, y: number, z: number, hexColor: number) {
-    if (this.particles.length >= this.maxParticles) return;
+    if (this.particles.length >= this.budget) return;
     const particle = this.free.pop()!;
     particle.color.setHex(hexColor);
     particle.x = x + (Math.random() - .5) * .3;
@@ -111,7 +113,8 @@ export class ParticleSystem {
     const posAttr = this.geometry.attributes.position as THREE.BufferAttribute;
     const colAttr = this.geometry.attributes.color as THREE.BufferAttribute;
 
-    for (let i = 0; i < this.maxParticles; i++) {
+    this.geometry.setDrawRange(0, Math.min(this.budget, this.particles.length));
+    for (let i = 0; i < this.particles.length; i++) {
       if (i < this.particles.length) {
         const p = this.particles[i];
         const alpha = p.life / p.maxLife;

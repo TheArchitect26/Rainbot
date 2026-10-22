@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { Lane } from '../types/game';
+import { Lane, LANE_POSITIONS } from '../types/game';
 import { BossState } from '../types/progression';
 import { sounds } from '../audio/SoundEffects';
 
@@ -21,7 +21,10 @@ export class BossEncounterManager {
   private ring1: THREE.Mesh;
   private ring2: THREE.Mesh;
   private ring3: THREE.Mesh;
-  private laserBeams: THREE.Mesh[] = [];
+  public warningGroup: THREE.Group;
+  private attackZ: number | null = null;
+  private attackNumber = 0;
+  private previousSafeLane: Lane | null = null;
 
   private attackTimer: number = 0;
   private currentAttackActive: boolean = false;
@@ -29,7 +32,8 @@ export class BossEncounterManager {
 
   constructor(scene: THREE.Scene) {
     this.group = new THREE.Group();
-    scene.add(this.group);
+    this.warningGroup = new THREE.Group();
+    scene.add(this.group, this.warningGroup);
 
     // 1. Boss Central Core (Geometric Glitch Octahedron)
     const coreGeo = new THREE.OctahedronGeometry(2.4, 1);
@@ -77,7 +81,7 @@ export class BossEncounterManager {
       const beam = new THREE.Mesh(warnGeo, warnMat);
       beam.visible = false;
       this.warningBeams.push(beam);
-      this.group.add(beam);
+      this.warningGroup.add(beam);
     }
 
     this.group.visible = false;
@@ -96,6 +100,10 @@ export class BossEncounterManager {
     };
     this.group.visible = true;
     this.attackTimer = 2.0;
+    this.attackZ = null;
+    this.attackNumber = 0;
+    this.previousSafeLane = null;
+    this.warningBeams.forEach(beam => { beam.visible = false; });
     sounds.playChaosWarning();
   }
 
@@ -104,8 +112,9 @@ export class BossEncounterManager {
     playerZ: number,
     globalTime: number,
     onBossDefeated: () => void,
-    onSpawnTelegraphedObstacle: (type: 'LOW_BARRIER' | 'FULL_BLOCK', lane: Lane) => void,
-    randomFn: () => number = Math.random
+    onSpawnTelegraphedObstacle: (type: 'LOW_BARRIER' | 'HIGH_BARRIER' | 'FULL_BLOCK', lane: Lane) => void,
+    randomFn: () => number = Math.random,
+    warningDistance = 60,
   ) {
     if (!this.state.active) return;
 
@@ -137,9 +146,18 @@ export class BossEncounterManager {
     // Boss Attack Scheduler
     this.attackTimer -= dt;
     if (this.attackTimer <= 0) {
+      this.attackZ = playerZ - warningDistance;
       this.executeBossAttack(onSpawnTelegraphedObstacle, randomFn);
       this.attackTimer = 4.2 - this.state.phase * 0.5; // faster as phases escalate
     }
+
+    // Ground-space lane warnings track the actual approaching attack row.
+    const distance = this.attackZ === null ? 0 : playerZ - this.attackZ;
+    this.warningBeams.forEach((beam, index) => {
+      beam.visible = distance > 0.6 && this.state.targetLanes.includes((index - 1) as Lane);
+      beam.position.set(LANE_POSITIONS[(index - 1) as Lane], 0.035, playerZ - Math.max(0, distance) / 2);
+      beam.scale.z = Math.max(0.01, distance / 35);
+    });
 
     // Advance boss timer
     this.state.timeLeft -= dt;
@@ -149,11 +167,15 @@ export class BossEncounterManager {
   }
 
   private executeBossAttack(
-    onSpawnTelegraphedObstacle: (type: 'LOW_BARRIER' | 'FULL_BLOCK', lane: Lane) => void,
+    onSpawnTelegraphedObstacle: (type: 'LOW_BARRIER' | 'HIGH_BARRIER' | 'FULL_BLOCK', lane: Lane) => void,
     randomFn: () => number = Math.random
   ) {
     const lanes: Lane[] = [-1, 0, 1];
-    const safeLane = lanes[Math.floor(randomFn() * lanes.length)];
+    const choices = lanes.filter(lane => lane !== this.previousSafeLane);
+    const safeLane = choices[Math.floor(randomFn() * choices.length)];
+    this.previousSafeLane = safeLane;
+    this.attackNumber++;
+    const safeName = safeLane === -1 ? 'LEFT' : safeLane === 1 ? 'RIGHT' : 'CENTER';
     const attackedLanes = lanes.filter((l) => l !== safeLane);
 
     if (this.state.phase === 1) {
@@ -166,11 +188,12 @@ export class BossEncounterManager {
       }
     } else if (this.state.phase === 2) {
       // Phase 2: Data Wave Sweep (Low barrier sweep across 2 lanes, jump required)
-      this.state.telegraph = '⚡ DATA WAVE SWEEP! PREPARE TO JUMP!';
+      const wave = this.attackNumber % 2 ? 'LOW_BARRIER' : 'HIGH_BARRIER';
+      this.state.telegraph = `${wave === 'LOW_BARRIER' ? 'JUMP' : 'SLIDE'} WAVE · OPEN ${safeName}`;
       this.state.targetLanes = attackedLanes;
 
       for (const lane of attackedLanes) {
-        onSpawnTelegraphedObstacle('LOW_BARRIER', lane);
+        onSpawnTelegraphedObstacle(wave, lane);
       }
     } else {
       // Phase 3: Triple Overclock assault
@@ -178,7 +201,7 @@ export class BossEncounterManager {
       this.state.targetLanes = attackedLanes;
 
       for (const lane of attackedLanes) {
-        onSpawnTelegraphedObstacle(randomFn() > 0.5 ? 'FULL_BLOCK' : 'LOW_BARRIER', lane);
+        onSpawnTelegraphedObstacle(lane === attackedLanes[0] ? 'FULL_BLOCK' : randomFn() > 0.5 ? 'LOW_BARRIER' : 'HIGH_BARRIER', lane);
       }
     }
   }
@@ -186,6 +209,8 @@ export class BossEncounterManager {
   private defeatBoss(onBossDefeated: () => void) {
     this.state.active = false;
     this.group.visible = false;
+    this.attackZ = null;
+    this.warningBeams.forEach(beam => { beam.visible = false; });
     this.state.telegraph = null;
     this.state.targetLanes = [];
     sounds.playPowerUp();
@@ -195,6 +220,8 @@ export class BossEncounterManager {
   public reset() {
     this.state.active = false;
     this.group.visible = false;
+    this.attackZ = null;
+    this.warningBeams.forEach(beam => { beam.visible = false; });
     this.state.telegraph = null;
     this.state.targetLanes = [];
     this.state.timeLeft = 22;

@@ -1,3 +1,4 @@
+import { BUILD_INFO } from './buildInfo';
 import { storage } from '../utils/storage';
 /**
  * Privacy-Conscious Local Diagnostics & Analytics for BRAINROT RUN.
@@ -200,7 +201,7 @@ export class LocalAnalyticsService {
     this.save();
   }
   public exportJSON(): string {
-    return JSON.stringify(this.data, null, 2);
+    return JSON.stringify({ ...this.data, build: BUILD_INFO }, null, 2);
   }
 }
 export const localAnalytics = new LocalAnalyticsService();

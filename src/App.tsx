@@ -1,3 +1,4 @@
+import { swipeAction } from './utils/gestures';
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
@@ -531,7 +532,7 @@ export default function App() {
   }, [selectedSkinId, currentSelectedSkin]);
 
   // Touch Swipe Gesture Detectors (Responsive, short-swipe threshold ~20px, debounced)
-  const touchStartRef = useRef<{ x: number; y: number; time: number } | null>(null);
+  const touchStartRef = useRef<{ x: number; y: number; time: number; identifier: number } | null>(null);
 
   const handleTouchStart = (e: React.TouchEvent | TouchEvent) => {
     touchStartRef.current = null;
@@ -542,40 +543,27 @@ export default function App() {
         x: e.touches[0].clientX,
         y: e.touches[0].clientY,
         time: performance.now(),
+        identifier: e.touches[0].identifier,
       };
     }
   };
 
-  const handleTouchEnd = (e: React.TouchEvent | TouchEvent) => {
-    if (!touchStartRef.current || e.changedTouches.length === 0) return;
+  const acceptSwipe = (touch: { clientX: number; clientY: number; identifier: number }) => {
     const start = touchStartRef.current;
-    const endX = e.changedTouches[0].clientX;
-    const endY = e.changedTouches[0].clientY;
-    const dx = endX - start.x;
-    const dy = endY - start.y;
-    const elapsed = performance.now() - start.time;
-
+    if (!start || touch.identifier !== start.identifier) return;
+    const action = swipeAction(start.x, start.y, start.time, touch.clientX, touch.clientY, performance.now());
+    if (action) {
+      touchStartRef.current = null; // One accepted action per finger gesture, including release.
+      engineRef.current?.handleInput(action);
+    }
+  };
+  const handleTouchMove = (e: React.TouchEvent | TouchEvent) => {
+    if (e.touches.length !== 1) { touchStartRef.current = null; return; }
+    acceptSwipe(e.touches[0]);
+  };
+  const handleTouchEnd = (e: React.TouchEvent | TouchEvent) => {
+    if (e.changedTouches.length) acceptSwipe(e.changedTouches[0]);
     touchStartRef.current = null;
-
-    // Fast swipe threshold: short flicks >= 20px if fast (< 350ms), or >= 35px if slower
-    const minThreshold = elapsed < 350 ? 20 : 35;
-    if (Math.abs(dx) < minThreshold && Math.abs(dy) < minThreshold) {
-      return;
-    }
-
-    if (Math.abs(dx) > Math.abs(dy)) {
-      if (dx < 0) {
-        engineRef.current?.handleInput('LEFT');
-      } else {
-        engineRef.current?.handleInput('RIGHT');
-      }
-    } else {
-      if (dy < 0) {
-        engineRef.current?.handleInput('JUMP');
-      } else {
-        engineRef.current?.handleInput('SLIDE');
-      }
-    }
   };
 
   // Keyboard controls for desktop fallback & testing
@@ -881,6 +869,7 @@ export default function App() {
     <div
       className="fixed inset-0 w-full h-full h-[100dvh] overflow-hidden bg-black select-none touch-none overscroll-none"
       onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
       onTouchCancel={() => {
         touchStartRef.current = null;
@@ -890,7 +879,7 @@ export default function App() {
       <div ref={canvasMountRef} className="absolute inset-0 w-full h-full" />
 
       {/* Retro cyber scanlines */}
-      <div className="absolute inset-0 scanlines pointer-events-none opacity-30 z-[5]" />
+      <div className="absolute inset-0 scanlines pointer-events-none opacity-15 z-[5]" />
 
       {/* Screen States */}
       {engineError && (
